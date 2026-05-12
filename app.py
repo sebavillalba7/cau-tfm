@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 from pathlib import Path
 import base64, hashlib, re
 import pandas as pd
@@ -215,18 +216,18 @@ def html_table(df, highlight_cols=None, num_format=None, max_rows=20, height=420
             except:
                 display = str(val) if str(val) not in ["nan","None","<NA>"] else "—"
             style = cell_color(col, val)
-            cells += f'<td style="text-align:center;padding:9px 12px;border-bottom:1px solid rgba(255,255,255,0.05);{style}">{display}</td>'
+            cells += f'<td style="text-align:center;padding:9px 14px;border-bottom:1px solid rgba(255,255,255,0.05);white-space:nowrap;{style}">{display}</td>'
         rows_html += f"<tr>{cells}</tr>"
 
     headers = ""
     for col in df.columns:
-        headers += f'<th style="text-align:center;padding:10px 12px;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#60a5fa;background:rgba(26,90,180,0.25);border-bottom:2px solid rgba(26,90,180,0.4);">{col}</th>'
+        headers += f'<th style="text-align:center;padding:10px 14px;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#60a5fa;background:rgba(26,90,180,0.25);border-bottom:2px solid rgba(26,90,180,0.4);white-space:nowrap;">{col}</th>'
 
-    scroll_style = f"overflow-y:auto;max-height:{height}px;" if len(df) > max_rows else ""
+    scroll_y = f"overflow-y:auto;max-height:{height}px;" if len(df) > max_rows else "overflow-y:auto;"
     st.markdown(f'''
     <div style="background:#071428;border:1px solid rgba(26,90,180,0.3);border-radius:14px;overflow:hidden;margin-top:8px;">
-        <div style="{scroll_style}">
-        <table style="width:100%;border-collapse:collapse;">
+        <div style="{scroll_y}overflow-x:auto;width:100%;">
+        <table style="width:max-content;min-width:100%;border-collapse:collapse;">
             <thead><tr style="position:sticky;top:0;z-index:2;">{headers}</tr></thead>
             <tbody>{rows_html}</tbody>
         </table>
@@ -646,10 +647,7 @@ def render_cuerpo_humano(df_jugador, region_col):
     if df_jugador.empty or not region_col:
         return
 
-    # Contar lesiones por región
     reg_counts = df_jugador[region_col].dropna().astype(str).str.upper().value_counts().to_dict()
-
-    # Mapear a zonas SVG con intensidad
     zonas = set()
     intensidad = {}
     for region, cnt in reg_counts.items():
@@ -661,33 +659,48 @@ def render_cuerpo_humano(df_jugador, region_col):
 
     svg = cuerpo_humano_svg(zonas, intensidad)
 
-    # Leyenda de zonas afectadas
-    leyenda = ""
+    leyenda_rows = ""
     for region, cnt in sorted(reg_counts.items(), key=lambda x: -x[1]):
         if region not in ["NA", "OTRA", "NO-MUSC"]:
-            leyenda += f'<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.05);"><span style="font-size:12px;color:#94a3b8;">{region.title()}</span><span style="font-size:12px;font-weight:700;color:#f87171;">{cnt}</span></div>'
+            leyenda_rows += f"""
+            <tr>
+                <td style="padding:8px 12px;color:#94a3b8;font-size:13px;">{region.title()}</td>
+                <td style="padding:8px 12px;color:#f87171;font-weight:700;font-size:13px;text-align:right;">{cnt}</td>
+            </tr>"""
 
-    col_svg, col_ley = st.columns([1, 1])
-    with col_svg:
-        st.markdown(f"""
-        <div style="background:rgba(8,18,38,.95);border:1px solid rgba(200,16,46,.2);
-                    border-radius:16px;padding:16px;text-align:center;">
-            <div style="font-size:10px;color:#c8102e;font-weight:700;letter-spacing:2px;
-                        text-transform:uppercase;margin-bottom:10px;">Mapa corporal de lesiones</div>
-            {svg}
-        </div>
-        """, unsafe_allow_html=True)
-    with col_ley:
-        st.markdown(f"""
-        <div style="background:rgba(8,18,38,.95);border:1px solid rgba(26,90,180,.2);
-                    border-radius:16px;padding:16px;height:100%;">
-            <div style="font-size:10px;color:#60a5fa;font-weight:700;letter-spacing:2px;
-                        text-transform:uppercase;margin-bottom:10px;">Regiones afectadas</div>
-            <div style="max-height:480px;overflow-y:auto;">
-                {leyenda if leyenda else '<div style="color:#475569;font-size:12px;margin-top:20px;">Sin lesiones registradas</div>'}
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+    # HTML completo que se inyecta via components
+    html_body = f"""<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body {{margin:0;padding:0;background:transparent;font-family:Inter,sans-serif;}}
+  .wrap {{display:flex;gap:16px;align-items:flex-start;background:#071428;border:1px solid rgba(200,16,46,.3);border-radius:14px;padding:16px;}}
+  .svg-box {{flex:0 0 260px;text-align:center;}}
+  .svg-box .label {{font-size:10px;color:#c8102e;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;}}
+  .ley-box {{flex:1;}}
+  .ley-title {{font-size:10px;color:#60a5fa;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;}}
+  table {{width:100%;border-collapse:collapse;}}
+  tr {{border-bottom:1px solid rgba(255,255,255,0.06);}}
+  tr:last-child {{border-bottom:none;}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="svg-box">
+    <div class="label">Mapa corporal</div>
+    {svg}
+  </div>
+  <div class="ley-box">
+    <div class="ley-title">Regiones afectadas</div>
+    <table>
+      {'<tr><td colspan="2" style="color:#475569;font-size:12px;padding:8px;">Sin lesiones registradas</td></tr>' if not leyenda_rows else leyenda_rows}
+    </table>
+  </div>
+</div>
+</body>
+</html>"""
+
+    components.html(html_body, height=620, scrolling=False)
 
 
 def grafico_con_scroll(fig, height=380, max_items=15):
