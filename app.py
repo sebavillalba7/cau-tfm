@@ -460,204 +460,355 @@ def pagina_historial():
 # FIGURA HUMANA SVG — mapeo de lesiones
 # ══════════════════════════════════════════════════════════════
 
-# Mapeo REGION → zonas SVG del cuerpo
-REGION_TO_ZONA = {
-    "MUSLO ANTERIOR":  ["muslo_ant_der", "muslo_ant_izq"],
-    "MUSLO POSTERIOR": ["muslo_post_der","muslo_post_izq"],
-    "MUSLO INTERNO":   ["muslo_int_der", "muslo_int_izq"],
-    "MUSLO EXTERNO":   ["muslo_ext_der", "muslo_ext_izq"],
-    "RODILLA":         ["rodilla_der",   "rodilla_izq"],
-    "PIERNA":          ["pierna_der",    "pierna_izq"],
-    "TOBILLO":         ["tobillo_der",   "tobillo_izq"],
-    "TOBILLO Y PIE":   ["tobillo_der",   "tobillo_izq", "pie_der", "pie_izq"],
-    "PIE":             ["pie_der",       "pie_izq"],
-    "PUBIS":           ["pubis"],
-    "ABDOMEN":         ["abdomen"],
-    "LUMBAR":          ["lumbar"],
-    "GLUTEO":          ["gluteo_der",    "gluteo_izq"],
-    "HOMBRO":          ["hombro_der",    "hombro_izq"],
-    "CADERA":          ["cadera_der",    "cadera_izq"],
-    "CABEZA":          ["cabeza"],
-    "CARA":            ["cabeza"],
-    "PIERNA":          ["pierna_der",    "pierna_izq"],
-    "ANTE BRAZO":      ["antebrazo_der"],
+# ──────────────────────────────────────────────────────────────
+# MAPEO MUSCL_ID → (zona_svg, lado)
+# Extrae zona anatómica y lado (der/izq/bilat) de MUSCL_ID
+# ──────────────────────────────────────────────────────────────
+import re as _re
+
+MUSCULO_A_ZONA = {
+    # Isquiotibiales
+    "ISQUIOTIBIAL":              "muslo_post",
+    # Cuádriceps y recto anterior
+    "CUADRICEPS":                "muslo_ant",
+    "RECTO ANTERIOR CUADRICEPS": "muslo_ant",
+    "RECTO ANTERIOR":            "muslo_ant",
+    "TENDON CUADRICIPITAL":      "rodilla",
+    "TENDON ROTULIANO":          "rodilla",
+    "ROTULA":                    "rodilla",
+    # Aductores / muslo interno
+    "ADUCTOR":                   "muslo_int",
+    "PECTINEO":                  "muslo_int",
+    "OBTURADOR":                 "muslo_int",
+    "TRAYECTO INGLE":            "muslo_int",
+    # Glúteo
+    "GLUTEO":                    "gluteo",
+    "TFL":                       "gluteo",
+    "ILIOPSOAS":                 "cadera",
+    # Rodilla / ligamentos
+    "MENISCO":                   "rodilla",
+    "LCA":                       "rodilla",
+    "LLI":                       "rodilla",
+    "PATA DE GANZO":             "rodilla",
+    "RODILLA":                   "rodilla",
+    # Pierna
+    "GEMELO":                    "pierna",
+    "GEMELOS":                   "pierna",
+    "SOLEO":                     "pierna",
+    "SARTORIO":                  "muslo_ant",
+    "TIBIAL POSTERIOR":          "pierna",
+    "TIBIAL ANT":                "pierna",
+    "TIBIA":                     "pierna",
+    "PERONEOS":                  "pierna",
+    "TENDON PERONEO":            "pierna",
+    "AQUILES":                   "tobillo",
+    "LIGAMENTO EXTERNO":         "tobillo",
+    # Tobillo / pie
+    "PIE":                       "pie",
+    "SESAMOIDEO":                "pie",
+    # Pubis / abdomen
+    "PUBIS":                     "pubis",
+    "TENDON DEL PUBIS":          "pubis",
+    "PERINE":                    "pubis",
+    "RECTO ABDOMEN":             "abdomen",
+    # Lumbar / espalda
+    "LUMBARES":                  "lumbar",
+    # Hombro / brazo
+    "SUB ESCAPULAR":             "hombro",
+    "HOMBRO":                    "hombro",
+    "MUÑECA":                    "antebrazo",
+    # Cabeza / cara
+    "PARPADO":                   "cabeza",
+    "MAXILAR":                   "cabeza",
+    "NARIZ":                     "cabeza",
+    "CABEZA":                    "cabeza",
 }
 
-def cuerpo_humano_svg(zonas_afectadas: set, intensidad: dict = None) -> str:
-    """
-    Genera SVG del cuerpo humano con zonas afectadas coloreadas.
-    zonas_afectadas: set de strings de zonas a colorear
-    intensidad: dict zona -> count para gradiente de color
-    """
-    intensidad = intensidad or {}
-    max_int = max(intensidad.values()) if intensidad else 1
+REGION_A_ZONA = {
+    "MUSLO ANTERIOR":  "muslo_ant",
+    "MUSLO POSTERIOR": "muslo_post",
+    "MUSLO INTERNO":   "muslo_int",
+    "MUSLO EXTERNO":   "muslo_ext",
+    "RODILLA":         "rodilla",
+    "PIERNA":          "pierna",
+    "TOBILLO":         "tobillo",
+    "TOBILLO Y PIE":   "tobillo",
+    "PIE":             "pie",
+    "PUBIS":           "pubis",
+    "ABDOMEN":         "abdomen",
+    "LUMBAR":          "lumbar",
+    "GLUTEO":          "gluteo",
+    "HOMBRO":          "hombro",
+    "CADERA":          "cadera",
+    "CABEZA":          "cabeza",
+    "CARA":            "cabeza",
+    "ANTE BRAZO":      "antebrazo",
+}
 
-    def color(zona):
-        if zona not in zonas_afectadas: return "#1a2f52"
-        cnt = intensidad.get(zona, 1)
-        ratio = min(cnt / max_int, 1.0)
-        r = int(180 + 75 * ratio)
-        g = int(60 * (1 - ratio))
-        b = int(40 * (1 - ratio))
+def parsear_muscl_id(muscl_id: str) -> tuple:
+    """
+    Dado MUSCL_ID como 'ISQUIOTIBIAL DER', 'MENISCO IZQ', 'ADUCTOR BILAT'
+    retorna (zona_svg, lado) donde lado es 'der', 'izq', o 'bilat'
+    """
+    if not muscl_id or str(muscl_id).upper() in ["NO-MUSC","NO MUSC","NA","NAN","—",""]:
+        return None, None
+    s = str(muscl_id).strip().upper()
+    # Extraer lado
+    lado = "bilat"
+    if s.endswith(" DER"): lado = "der"; s = s[:-4].strip()
+    elif s.endswith(" IZQ"): lado = "izq"; s = s[:-4].strip()
+    elif s.endswith(" BILAT"): lado = "bilat"; s = s[:-6].strip()
+    # Buscar zona
+    zona = None
+    for key, z in MUSCULO_A_ZONA.items():
+        if s.startswith(key) or key in s:
+            zona = z
+            break
+    return zona, lado
+
+def zonas_con_lado(zona_base: str, lado: str) -> list:
+    """Convierte zona_base + lado en lista de IDs SVG."""
+    if not zona_base: return []
+    if lado == "der":   return [f"{zona_base}_der"]
+    if lado == "izq":   return [f"{zona_base}_izq"]
+    return [f"{zona_base}_der", f"{zona_base}_izq"]  # bilat
+
+
+def cuerpo_humano_svg(zonas_intensidad: dict) -> str:
+    """
+    Genera SVG anatómico de calidad del cuerpo humano.
+    zonas_intensidad: dict {zona_id: count}
+    Zonas: muslo_ant_der/izq, muslo_post_der/izq, muslo_int_der/izq,
+           rodilla_der/izq, pierna_der/izq, tobillo_der/izq, pie_der/izq,
+           gluteo_der/izq, pubis, abdomen, lumbar, hombro_der/izq,
+           cadera_der/izq, cabeza, antebrazo_der/izq
+    """
+    max_v = max(zonas_intensidad.values()) if zonas_intensidad else 1
+
+    def fill(zona):
+        if zona not in zonas_intensidad:
+            return "#1e3a5f"
+        ratio = min(zonas_intensidad[zona] / max_v, 1.0)
+        r = int(220 + 35 * ratio)
+        g = int(50 * (1 - ratio))
+        b = int(30 * (1 - ratio))
         return f"rgb({r},{g},{b})"
 
-    def stroke(zona):
-        return "#f87171" if zona in zonas_afectadas else "rgba(255,255,255,0.15)"
+    def glow(zona):
+        return f'filter:drop-shadow(0 0 6px {fill(zona)});' if zona in zonas_intensidad else ""
 
-    def sw(zona):
-        return "2" if zona in zonas_afectadas else "1"
+    f = fill  # alias corto
 
-    def op(zona):
-        return "1.0" if zona in zonas_afectadas else "0.6"
+    # SVG anatómico profesional — vista frontal
+    svg = f"""<svg viewBox="0 0 280 580" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:260px;display:block;margin:0 auto;">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#0d1e3c"/>
+      <stop offset="100%" stop-color="#071428"/>
+    </radialGradient>
+  </defs>
+  <rect width="280" height="580" fill="url(#bg)" rx="14"/>
 
-    c = color
-    svg = f"""
-    <svg viewBox="0 0 320 600" xmlns="http://www.w3.org/2000/svg" 
-         style="width:100%;max-width:320px;display:block;margin:0 auto;">
-      <defs>
-        <filter id="glow">
-          <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
-          <feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge>
-        </filter>
-      </defs>
+  <!-- CABEZA -->
+  <ellipse cx="140" cy="44" rx="30" ry="36"
+    fill="{f('cabeza')}" stroke="rgba(255,255,255,0.2)" stroke-width="1.2"
+    style="{glow('cabeza')}"/>
 
-      <!-- FONDO -->
-      <rect width="320" height="600" fill="#071428" rx="16"/>
+  <!-- CUELLO -->
+  <rect x="128" y="78" width="24" height="20" rx="5"
+    fill="#1a3050" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
 
-      <!-- ── CABEZA ── -->
-      <ellipse id="cabeza" cx="160" cy="48" rx="32" ry="38"
-               fill="{c("cabeza")}" opacity="{op("cabeza")}" stroke="{stroke("cabeza")}" stroke-width="{sw("cabeza")}"/>
+  <!-- TORSO -->
+  <path d="M90,98 Q74,108 70,135 L68,200 Q90,212 140,214 Q190,212 212,200 L210,135 Q206,108 190,98 Z"
+    fill="#1e3a5f" stroke="rgba(255,255,255,0.12)" stroke-width="1"/>
 
-      <!-- ── CUELLO ── -->
-      <rect x="148" y="84" width="24" height="22" rx="4"
-            fill="rgba(255,255,255,0.1)" opacity="0.5"/>
+  <!-- PECTORAL DER (decorativo) -->
+  <path d="M95,118 Q110,112 130,116 Q130,140 110,146 Q92,140 95,118Z"
+    fill="#1a3050" stroke="rgba(255,255,255,0.08)" stroke-width="0.8"/>
+  <!-- PECTORAL IZQ -->
+  <path d="M185,118 Q170,112 150,116 Q150,140 170,146 Q188,140 185,118Z"
+    fill="#1a3050" stroke="rgba(255,255,255,0.08)" stroke-width="0.8"/>
 
-      <!-- ── TRONCO SUPERIOR (torso) ── -->
-      <path d="M110,106 Q90,112 84,140 L80,210 Q100,218 160,218 Q220,218 240,210 L236,140 Q230,112 210,106 Z"
-            fill="rgba(255,255,255,0.1)" opacity="0.5" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
+  <!-- ABDOMEN -->
+  <rect x="112" y="160" width="56" height="52" rx="10"
+    fill="{f('abdomen')}" stroke="rgba(255,255,255,0.15)" stroke-width="1"
+    style="{glow('abdomen')}"/>
 
-      <!-- ABDOMEN -->
-      <rect id="abdomen" x="125" y="176" width="70" height="42" rx="8"
-            fill="{c("abdomen")}" opacity="{op("abdomen")}" stroke="{stroke("abdomen")}" stroke-width="{sw("abdomen")}"/>
+  <!-- LUMBAR -->
+  <rect x="114" y="170" width="52" height="36" rx="8"
+    fill="{f('lumbar')}" stroke="rgba(255,255,255,0.12)" stroke-width="1"
+    style="{glow('lumbar')}"/>
 
-      <!-- PUBIS -->
-      <ellipse id="pubis" cx="160" cy="228" rx="30" ry="16"
-               fill="{c("pubis")}" opacity="{op("pubis")}" stroke="{stroke("pubis")}" stroke-width="{sw("pubis")}"/>
+  <!-- PUBIS -->
+  <ellipse cx="140" cy="222" rx="28" ry="14"
+    fill="{f('pubis')}" stroke="rgba(255,255,255,0.15)" stroke-width="1"
+    style="{glow('pubis')}"/>
 
-      <!-- LUMBAR -->
-      <rect id="lumbar" x="130" y="188" width="60" height="28" rx="6"
-            fill="{c("lumbar")}" opacity="{op("lumbar")}" stroke="{stroke("lumbar")}" stroke-width="{sw("lumbar")}"/>
+  <!-- HOMBRO DER -->
+  <ellipse cx="76" cy="114" rx="18" ry="16"
+    fill="{f('hombro_der')}" stroke="rgba(255,255,255,0.2)" stroke-width="1.2"
+    style="{glow('hombro_der')}"/>
+  <!-- HOMBRO IZQ -->
+  <ellipse cx="204" cy="114" rx="18" ry="16"
+    fill="{f('hombro_izq')}" stroke="rgba(255,255,255,0.2)" stroke-width="1.2"
+    style="{glow('hombro_izq')}"/>
 
-      <!-- ── HOMBROS ── -->
-      <ellipse id="hombro_der" cx="92" cy="118" rx="22" ry="18"
-               fill="{c("hombro_der")}" opacity="{op("hombro_der")}" stroke="{stroke("hombro_der")}" stroke-width="{sw("hombro_der")}"/>
-      <ellipse id="hombro_izq" cx="228" cy="118" rx="22" ry="18"
-               fill="{c("hombro_izq")}" opacity="{op("hombro_izq")}" stroke="{stroke("hombro_izq")}" stroke-width="{sw("hombro_izq")}"/>
+  <!-- BRAZO SUP DER -->
+  <rect x="56" y="128" width="22" height="72" rx="10"
+    fill="#1a3050" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+  <!-- BRAZO SUP IZQ -->
+  <rect x="202" y="128" width="22" height="72" rx="10"
+    fill="#1a3050" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
 
-      <!-- BRAZOS (decorativo) -->
-      <rect x="70" y="134" width="22" height="80" rx="10" fill="rgba(255,255,255,0.08)" opacity="0.4"/>
-      <rect x="228" y="134" width="22" height="80" rx="10" fill="rgba(255,255,255,0.08)" opacity="0.4"/>
+  <!-- ANTEBRAZO DER -->
+  <rect x="52" y="202" width="20" height="64" rx="9"
+    fill="{f('antebrazo_der')}" stroke="rgba(255,255,255,0.15)" stroke-width="1"
+    style="{glow('antebrazo_der')}"/>
+  <!-- ANTEBRAZO IZQ -->
+  <rect x="208" y="202" width="20" height="64" rx="9"
+    fill="{f('antebrazo_izq')}" stroke="rgba(255,255,255,0.15)" stroke-width="1"
+    style="{glow('antebrazo_izq')}"/>
 
-      <!-- ANTEBRAZOS -->
-      <rect id="antebrazo_der" x="64" y="216" width="20" height="60" rx="8"
-            fill="{c("antebrazo_der")}" opacity="{op("antebrazo_der")}" stroke="{stroke("antebrazo_der")}" stroke-width="{sw("antebrazo_der")}"/>
-      <rect id="antebrazo_izq" x="236" y="216" width="20" height="60" rx="8"
-            fill="{c("antebrazo_izq")}" opacity="{op("antebrazo_izq")}" stroke="{stroke("antebrazo_izq")}" stroke-width="{sw("antebrazo_izq")}"/>
+  <!-- CADERA DER -->
+  <path d="M106,212 Q88,218 84,240 Q86,256 110,258 Q122,250 120,234 Z"
+    fill="{f('cadera_der')}" stroke="rgba(255,255,255,0.15)" stroke-width="1"
+    style="{glow('cadera_der')}"/>
+  <!-- CADERA IZQ -->
+  <path d="M174,212 Q192,218 196,240 Q194,256 170,258 Q158,250 160,234 Z"
+    fill="{f('cadera_izq')}" stroke="rgba(255,255,255,0.15)" stroke-width="1"
+    style="{glow('cadera_izq')}"/>
 
-      <!-- ── CADERAS ── -->
-      <ellipse id="cadera_der" cx="128" cy="240" rx="26" ry="20"
-               fill="{c("cadera_der")}" opacity="{op("cadera_der")}" stroke="{stroke("cadera_der")}" stroke-width="{sw("cadera_der")}"/>
-      <ellipse id="cadera_izq" cx="192" cy="240" rx="26" ry="20"
-               fill="{c("cadera_izq")}" opacity="{op("cadera_izq")}" stroke="{stroke("cadera_izq")}" stroke-width="{sw("cadera_izq")}"/>
+  <!-- GLUTEO DER -->
+  <ellipse cx="108" cy="248" rx="22" ry="18"
+    fill="{f('gluteo_der')}" stroke="rgba(255,255,255,0.15)" stroke-width="1"
+    style="{glow('gluteo_der')}"/>
+  <!-- GLUTEO IZQ -->
+  <ellipse cx="172" cy="248" rx="22" ry="18"
+    fill="{f('gluteo_izq')}" stroke="rgba(255,255,255,0.15)" stroke-width="1"
+    style="{glow('gluteo_izq')}"/>
 
-      <!-- ── GLUTEOS ── -->
-      <ellipse id="gluteo_der" cx="125" cy="252" rx="22" ry="18"
-               fill="{c("gluteo_der")}" opacity="{op("gluteo_der")}" stroke="{stroke("gluteo_der")}" stroke-width="{sw("gluteo_der")}"/>
-      <ellipse id="gluteo_izq" cx="195" cy="252" rx="22" ry="18"
-               fill="{c("gluteo_izq")}" opacity="{op("gluteo_izq")}" stroke="{stroke("gluteo_izq")}" stroke-width="{sw("gluteo_izq")}"/>
+  <!-- MUSLO ANT DER (frente, capa superior) -->
+  <path d="M94,258 Q84,268 82,310 Q84,338 104,342 Q120,336 122,308 Q120,268 110,256 Z"
+    fill="{f('muslo_ant_der')}" stroke="rgba(255,255,255,0.18)" stroke-width="1.2"
+    style="{glow('muslo_ant_der')}"/>
+  <!-- MUSLO ANT IZQ -->
+  <path d="M186,258 Q196,268 198,310 Q196,338 176,342 Q160,336 158,308 Q160,268 170,256 Z"
+    fill="{f('muslo_ant_izq')}" stroke="rgba(255,255,255,0.18)" stroke-width="1.2"
+    style="{glow('muslo_ant_izq')}"/>
 
-      <!-- ── MUSLO ANTERIOR DER ── -->
-      <rect id="muslo_ant_der" x="102" y="258" width="44" height="80" rx="14"
-            fill="{c("muslo_ant_der")}" opacity="{op("muslo_ant_der")}" stroke="{stroke("muslo_ant_der")}" stroke-width="{sw("muslo_ant_der")}"/>
+  <!-- MUSLO INT DER -->
+  <path d="M110,262 Q122,268 126,308 Q120,334 110,338 Q100,328 98,298 Q98,272 110,262Z"
+    fill="{f('muslo_int_der')}" stroke="rgba(255,255,255,0.12)" stroke-width="1"
+    style="{glow('muslo_int_der')}"/>
+  <!-- MUSLO INT IZQ -->
+  <path d="M170,262 Q158,268 154,308 Q160,334 170,338 Q180,328 182,298 Q182,272 170,262Z"
+    fill="{f('muslo_int_izq')}" stroke="rgba(255,255,255,0.12)" stroke-width="1"
+    style="{glow('muslo_int_izq')}"/>
 
-      <!-- ── MUSLO ANTERIOR IZQ ── -->
-      <rect id="muslo_ant_izq" x="174" y="258" width="44" height="80" rx="14"
-            fill="{c("muslo_ant_izq")}" opacity="{op("muslo_ant_izq")}" stroke="{stroke("muslo_ant_izq")}" stroke-width="{sw("muslo_ant_izq")}"/>
+  <!-- MUSLO POST DER (mismo espacio, color diferente — solo visible si afectado) -->
+  <path d="M86,268 Q82,300 84,330 Q90,342 106,344 Q118,336 120,308 Q118,272 106,260Z"
+    fill="{f('muslo_post_der')}" stroke="rgba(255,255,255,0.1)" stroke-width="1"
+    opacity="{'0.85' if 'muslo_post_der' in zonas_intensidad else '0'}"
+    style="{glow('muslo_post_der')}"/>
+  <!-- MUSLO POST IZQ -->
+  <path d="M194,268 Q198,300 196,330 Q190,342 174,344 Q162,336 160,308 Q162,272 174,260Z"
+    fill="{f('muslo_post_izq')}" stroke="rgba(255,255,255,0.1)" stroke-width="1"
+    opacity="{'0.85' if 'muslo_post_izq' in zonas_intensidad else '0'}"
+    style="{glow('muslo_post_izq')}"/>
 
-      <!-- ── MUSLO POSTERIOR DER ── -->
-      <rect id="muslo_post_der" x="104" y="262" width="40" height="76" rx="14"
-            fill="{c("muslo_post_der")}" opacity="{op("muslo_post_der")}" stroke="{stroke("muslo_post_der")}" stroke-width="{sw("muslo_post_der")}"
-            transform="translate(0,2)"/>
+  <!-- MUSLO EXT DER -->
+  <path d="M82,268 Q72,290 74,322 Q80,340 90,342 Q84,310 84,278Z"
+    fill="{f('muslo_ext_der')}" stroke="rgba(255,255,255,0.1)" stroke-width="1"
+    opacity="{'0.9' if 'muslo_ext_der' in zonas_intensidad else '0'}"
+    style="{glow('muslo_ext_der')}"/>
 
-      <!-- ── MUSLO POSTERIOR IZQ ── -->
-      <rect id="muslo_post_izq" x="176" y="262" width="40" height="76" rx="14"
-            fill="{c("muslo_post_izq")}" opacity="{op("muslo_post_izq")}" stroke="{stroke("muslo_post_izq")}" stroke-width="{sw("muslo_post_izq")}"
-            transform="translate(0,2)"/>
+  <!-- RODILLA DER -->
+  <ellipse cx="103" cy="350" rx="20" ry="14"
+    fill="{f('rodilla_der')}" stroke="rgba(255,255,255,0.22)" stroke-width="1.5"
+    style="{glow('rodilla_der')}"/>
+  <!-- RODILLA IZQ -->
+  <ellipse cx="177" cy="350" rx="20" ry="14"
+    fill="{f('rodilla_izq')}" stroke="rgba(255,255,255,0.22)" stroke-width="1.5"
+    style="{glow('rodilla_izq')}"/>
 
-      <!-- ── MUSLO INTERNO DER ── -->
-      <rect id="muslo_int_der" x="120" y="268" width="28" height="68" rx="10"
-            fill="{c("muslo_int_der")}" opacity="{op("muslo_int_der")}" stroke="{stroke("muslo_int_der")}" stroke-width="{sw("muslo_int_der")}"/>
+  <!-- PIERNA DER -->
+  <path d="M86,362 Q80,390 82,420 Q86,442 104,446 Q118,440 120,418 Q120,390 118,362 Q110,356 86,362Z"
+    fill="{f('pierna_der')}" stroke="rgba(255,255,255,0.18)" stroke-width="1.2"
+    style="{glow('pierna_der')}"/>
+  <!-- PIERNA IZQ -->
+  <path d="M194,362 Q200,390 198,420 Q194,442 176,446 Q162,440 160,418 Q160,390 162,362 Q170,356 194,362Z"
+    fill="{f('pierna_izq')}" stroke="rgba(255,255,255,0.18)" stroke-width="1.2"
+    style="{glow('pierna_izq')}"/>
 
-      <!-- ── MUSLO INTERNO IZQ ── -->
-      <rect id="muslo_int_izq" x="172" y="268" width="28" height="68" rx="10"
-            fill="{c("muslo_int_izq")}" opacity="{op("muslo_int_izq")}" stroke="{stroke("muslo_int_izq")}" stroke-width="{sw("muslo_int_izq")}"/>
+  <!-- TOBILLO DER -->
+  <ellipse cx="103" cy="452" rx="17" ry="10"
+    fill="{f('tobillo_der')}" stroke="rgba(255,255,255,0.22)" stroke-width="1.5"
+    style="{glow('tobillo_der')}"/>
+  <!-- TOBILLO IZQ -->
+  <ellipse cx="177" cy="452" rx="17" ry="10"
+    fill="{f('tobillo_izq')}" stroke="rgba(255,255,255,0.22)" stroke-width="1.5"
+    style="{glow('tobillo_izq')}"/>
 
-      <!-- ── RODILLA DER ── -->
-      <ellipse id="rodilla_der" cx="124" cy="346" rx="22" ry="16"
-               fill="{c("rodilla_der")}" opacity="{op("rodilla_der")}" stroke="{stroke("rodilla_der")}" stroke-width="{sw("rodilla_der")}"/>
+  <!-- PIE DER -->
+  <ellipse cx="100" cy="472" rx="21" ry="11"
+    fill="{f('pie_der')}" stroke="rgba(255,255,255,0.18)" stroke-width="1.2"
+    style="{glow('pie_der')}"/>
+  <!-- PIE IZQ -->
+  <ellipse cx="180" cy="472" rx="21" ry="11"
+    fill="{f('pie_izq')}" stroke="rgba(255,255,255,0.18)" stroke-width="1.2"
+    style="{glow('pie_izq')}"/>
 
-      <!-- ── RODILLA IZQ ── -->
-      <ellipse id="rodilla_izq" cx="196" cy="346" rx="22" ry="16"
-               fill="{c("rodilla_izq")}" opacity="{op("rodilla_izq")}" stroke="{stroke("rodilla_izq")}" stroke-width="{sw("rodilla_izq")}"/>
+  <!-- MANO DER -->
+  <ellipse cx="50" cy="278" rx="13" ry="10" fill="#1a3050" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+  <!-- MANO IZQ -->
+  <ellipse cx="230" cy="278" rx="13" ry="10" fill="#1a3050" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
 
-      <!-- ── PIERNA DER ── -->
-      <rect id="pierna_der" x="108" y="360" width="32" height="80" rx="12"
-            fill="{c("pierna_der")}" opacity="{op("pierna_der")}" stroke="{stroke("pierna_der")}" stroke-width="{sw("pierna_der")}"/>
-
-      <!-- ── PIERNA IZQ ── -->
-      <rect id="pierna_izq" x="180" y="360" width="32" height="80" rx="12"
-            fill="{c("pierna_izq")}" opacity="{op("pierna_izq")}" stroke="{stroke("pierna_izq")}" stroke-width="{sw("pierna_izq")}"/>
-
-      <!-- ── TOBILLO DER ── -->
-      <ellipse id="tobillo_der" cx="124" cy="446" rx="18" ry="10"
-               fill="{c("tobillo_der")}" opacity="{op("tobillo_der")}" stroke="{stroke("tobillo_der")}" stroke-width="{sw("tobillo_der")}"/>
-
-      <!-- ── TOBILLO IZQ ── -->
-      <ellipse id="tobillo_izq" cx="196" cy="446" rx="18" ry="10"
-               fill="{c("tobillo_izq")}" opacity="{op("tobillo_izq")}" stroke="{stroke("tobillo_izq")}" stroke-width="{sw("tobillo_izq")}"/>
-
-      <!-- ── PIE DER ── -->
-      <ellipse id="pie_der" cx="120" cy="468" rx="22" ry="12"
-               fill="{c("pie_der")}" opacity="{op("pie_der")}" stroke="{stroke("pie_der")}" stroke-width="{sw("pie_der")}"/>
-
-      <!-- ── PIE IZQ ── -->
-      <ellipse id="pie_izq" cx="200" cy="468" rx="22" ry="12"
-               fill="{c("pie_izq")}" opacity="{op("pie_izq")}" stroke="{stroke("pie_izq")}" stroke-width="{sw("pie_izq")}"/>
-
-      <!-- ── LABELS ── -->
-      <text x="160" y="592" text-anchor="middle" fill="rgba(255,255,255,0.3)" 
-            font-size="9" font-family="Inter,sans-serif">Vista anterior · Zonas afectadas</text>
-    </svg>
-    """
+  <!-- LABEL -->
+  <text x="140" y="560" text-anchor="middle" fill="rgba(255,255,255,0.25)"
+        font-size="9" font-family="Inter,sans-serif" letter-spacing="1">VISTA FRONTAL</text>
+</svg>"""
     return svg
 
 
 def render_cuerpo_humano(df_jugador, region_col):
-    """Renderiza la figura humana con las zonas del jugador coloreadas."""
-    if df_jugador.empty or not region_col:
+    """Renderiza la figura humana usando MUSCL_ID + LADO para precisión."""
+    if df_jugador.empty:
         return
 
-    reg_counts = df_jugador[region_col].dropna().astype(str).str.upper().value_counts().to_dict()
-    zonas = set()
-    intensidad = {}
-    for region, cnt in reg_counts.items():
-        for region_key, zonas_svg in REGION_TO_ZONA.items():
-            if region_key.upper() == region or region in region_key.upper():
-                for z in zonas_svg:
-                    zonas.add(z)
-                    intensidad[z] = intensidad.get(z, 0) + cnt
+    zonas_intensidad = {}
 
-    svg = cuerpo_humano_svg(zonas, intensidad)
+    # Columnas disponibles
+    muscl_col = next((c for c in df_jugador.columns if "muscl" in c.lower() or "sist_m" in c.lower()), None)
+    lado_col   = next((c for c in df_jugador.columns if c.upper() == "LADO"), None)
+
+    for _, row in df_jugador.iterrows():
+        # 1. Intentar parsear MUSCL_ID (más preciso)
+        zona, lado = None, None
+        if muscl_col:
+            muscl_val = str(row.get(muscl_col, ""))
+            zona, lado = parsear_muscl_id(muscl_val)
+
+        # 2. Si no hay MUSCL_ID útil, usar REGION
+        if not zona and region_col and region_col in row.index:
+            reg = str(row[region_col]).strip().upper()
+            zona = REGION_A_ZONA.get(reg)
+            # lado por columna LADO
+            if lado_col and lado_col in row.index:
+                l = str(row[lado_col]).strip().upper()
+                if l in ["DER","DERECHO","R","RIGHT"]:   lado = "der"
+                elif l in ["IZQ","IZQUIERDO","L","LEFT"]: lado = "izq"
+                else: lado = "bilat"
+            else:
+                lado = "bilat"
+
+        if not zona: continue
+
+        # 3. Determinar zonas SVG finales con lado
+        svgs = zonas_con_lado(zona, lado or "bilat")
+        for s in svgs:
+            zonas_intensidad[s] = zonas_intensidad.get(s, 0) + 1
+
+    svg = cuerpo_humano_svg(zonas_intensidad)
 
     leyenda_rows = ""
     for region, cnt in sorted(reg_counts.items(), key=lambda x: -x[1]):
