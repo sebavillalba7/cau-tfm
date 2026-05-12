@@ -583,45 +583,39 @@ def pagina_estadisticas_medicas():
                 plotly_dark(fig3,240)
                 st.plotly_chart(fig3,use_container_width=True)
 
-    # ── Fila 2: N° lesiones x estructura M-E  +  N° lesiones x región ──
+    # ── Fila 2: 4 gráficos en 2 columnas ──────────────────────
     st.markdown("---")
     est_me_col=next((c for c in les_df.columns if any(x in c.lower() for x in ["est_m","estructura","musculo","isquio","cuad","adu"])),est_col)
 
-    has_est = est_me_col is not None
-    has_reg = region_col is not None
+    b1, b2 = st.columns(2)
 
-    if has_est and has_reg:
-        b1, b2 = st.columns(2)
-    else:
-        b1, b2 = st.columns([1,1])
-
-    if has_est:
-        with b1:
+    # Col izq: N° lesiones x estructura barras VERTICALES (como Power BI)
+    with b1:
+        if est_me_col:
             st.markdown('<div class="subsec">N° lesiones x est. M-E</div>',unsafe_allow_html=True)
             vc=les_df[est_me_col].value_counts().reset_index(); vc.columns=["Estructura","N°"]
             vc=vc.sort_values("N°",ascending=False)
-            n_filas=len(vc)
-            alto_est=max(300, n_filas*38)
-            fig4=px.bar(vc,x="N°",y="Estructura",orientation="h",text="N°",
+            fig4=px.bar(vc,x="Estructura",y="N°",text="N°",
                        color_discrete_sequence=["#4299e1"],template="plotly_dark")
             fig4.update_traces(textposition="outside",textfont_color="#fff",
                               marker_color="#4299e1",texttemplate="%{text:.0f}")
-            fig4.update_layout(yaxis=dict(categoryorder="total ascending"))
-            plotly_dark(fig4, alto_est)
+            fig4.update_layout(xaxis_tickangle=-30,xaxis_title="",yaxis_title="N°")
+            plotly_dark(fig4, 320)
             st.plotly_chart(fig4,use_container_width=True)
 
-    if has_reg:
-        with b2:
+    # Col der: N° lesiones x región barras HORIZONTALES
+    with b2:
+        if region_col:
             st.markdown('<div class="subsec">N° lesiones x región</div>',unsafe_allow_html=True)
             vc_r=les_df[region_col].value_counts().reset_index(); vc_r.columns=["Región","N°"]
-            vc_r=vc_r.sort_values("N°",ascending=False)
+            vc_r=vc_r.sort_values("N°",ascending=True)
             n_filas_r=len(vc_r)
-            alto_reg=max(300, n_filas_r*38)
+            alto_reg=max(320, n_filas_r*36)
             fig5=px.bar(vc_r,x="N°",y="Región",orientation="h",text="N°",
                        color_discrete_sequence=["#48bb78"],template="plotly_dark")
             fig5.update_traces(textposition="outside",textfont_color="#fff",
                               marker_color="#48bb78",texttemplate="%{text:.0f}")
-            fig5.update_layout(yaxis=dict(categoryorder="total ascending"))
+            fig5.update_layout(yaxis=dict(categoryorder="total ascending"),xaxis_title="N°",yaxis_title="")
             plotly_dark(fig5, alto_reg)
             st.plotly_chart(fig5,use_container_width=True)
 
