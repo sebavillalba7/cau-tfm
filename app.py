@@ -454,6 +454,227 @@ def pagina_historial():
 # ══════════════════════════════════════════════════════════════
 # ESTADÍSTICAS MÉDICAS
 # ══════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════
+# FIGURA HUMANA SVG — mapeo de lesiones
+# ══════════════════════════════════════════════════════════════
+
+# Mapeo REGION → zonas SVG del cuerpo
+REGION_TO_ZONA = {
+    "MUSLO ANTERIOR":  ["muslo_ant_der", "muslo_ant_izq"],
+    "MUSLO POSTERIOR": ["muslo_post_der","muslo_post_izq"],
+    "MUSLO INTERNO":   ["muslo_int_der", "muslo_int_izq"],
+    "MUSLO EXTERNO":   ["muslo_ext_der", "muslo_ext_izq"],
+    "RODILLA":         ["rodilla_der",   "rodilla_izq"],
+    "PIERNA":          ["pierna_der",    "pierna_izq"],
+    "TOBILLO":         ["tobillo_der",   "tobillo_izq"],
+    "TOBILLO Y PIE":   ["tobillo_der",   "tobillo_izq", "pie_der", "pie_izq"],
+    "PIE":             ["pie_der",       "pie_izq"],
+    "PUBIS":           ["pubis"],
+    "ABDOMEN":         ["abdomen"],
+    "LUMBAR":          ["lumbar"],
+    "GLUTEO":          ["gluteo_der",    "gluteo_izq"],
+    "HOMBRO":          ["hombro_der",    "hombro_izq"],
+    "CADERA":          ["cadera_der",    "cadera_izq"],
+    "CABEZA":          ["cabeza"],
+    "CARA":            ["cabeza"],
+    "PIERNA":          ["pierna_der",    "pierna_izq"],
+    "ANTE BRAZO":      ["antebrazo_der"],
+}
+
+def cuerpo_humano_svg(zonas_afectadas: set, intensidad: dict = None) -> str:
+    """
+    Genera SVG del cuerpo humano con zonas afectadas coloreadas.
+    zonas_afectadas: set de strings de zonas a colorear
+    intensidad: dict zona -> count para gradiente de color
+    """
+    intensidad = intensidad or {}
+    max_int = max(intensidad.values()) if intensidad else 1
+
+    def color(zona):
+        if zona not in zonas_afectadas: return "rgba(255,255,255,0.08)"
+        cnt = intensidad.get(zona, 1)
+        ratio = cnt / max_int
+        # Verde claro (1) → Rojo intenso (máximo)
+        r = int(200 + 55 * ratio)
+        g = int(100 * (1 - ratio))
+        b = int(50 * (1 - ratio))
+        return f"rgb({r},{g},{b})"
+
+    def op(zona):
+        return "0.9" if zona in zonas_afectadas else "0.15"
+
+    c = color
+    svg = f"""
+    <svg viewBox="0 0 320 600" xmlns="http://www.w3.org/2000/svg" 
+         style="width:100%;max-width:320px;display:block;margin:0 auto;">
+      <defs>
+        <filter id="glow">
+          <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+          <feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+      </defs>
+
+      <!-- FONDO -->
+      <rect width="320" height="600" fill="#071428" rx="16"/>
+
+      <!-- ── CABEZA ── -->
+      <ellipse id="cabeza" cx="160" cy="48" rx="32" ry="38"
+               fill="{c("cabeza")}" opacity="{op("cabeza")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+
+      <!-- ── CUELLO ── -->
+      <rect x="148" y="84" width="24" height="22" rx="4"
+            fill="rgba(255,255,255,0.1)" opacity="0.5"/>
+
+      <!-- ── TRONCO SUPERIOR (torso) ── -->
+      <path d="M110,106 Q90,112 84,140 L80,210 Q100,218 160,218 Q220,218 240,210 L236,140 Q230,112 210,106 Z"
+            fill="rgba(255,255,255,0.1)" opacity="0.5" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
+
+      <!-- ABDOMEN -->
+      <rect id="abdomen" x="125" y="176" width="70" height="42" rx="8"
+            fill="{c("abdomen")}" opacity="{op("abdomen")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+
+      <!-- PUBIS -->
+      <ellipse id="pubis" cx="160" cy="228" rx="30" ry="16"
+               fill="{c("pubis")}" opacity="{op("pubis")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+
+      <!-- LUMBAR -->
+      <rect id="lumbar" x="130" y="188" width="60" height="28" rx="6"
+            fill="{c("lumbar")}" opacity="{op("lumbar")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+
+      <!-- ── HOMBROS ── -->
+      <ellipse id="hombro_der" cx="92" cy="118" rx="22" ry="18"
+               fill="{c("hombro_der")}" opacity="{op("hombro_der")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+      <ellipse id="hombro_izq" cx="228" cy="118" rx="22" ry="18"
+               fill="{c("hombro_izq")}" opacity="{op("hombro_izq")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+
+      <!-- BRAZOS (decorativo) -->
+      <rect x="70" y="134" width="22" height="80" rx="10" fill="rgba(255,255,255,0.08)" opacity="0.4"/>
+      <rect x="228" y="134" width="22" height="80" rx="10" fill="rgba(255,255,255,0.08)" opacity="0.4"/>
+
+      <!-- ANTEBRAZOS -->
+      <rect id="antebrazo_der" x="64" y="216" width="20" height="60" rx="8"
+            fill="{c("antebrazo_der")}" opacity="{op("antebrazo_der")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+      <rect id="antebrazo_izq" x="236" y="216" width="20" height="60" rx="8"
+            fill="{c("antebrazo_izq")}" opacity="{op("antebrazo_izq")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+
+      <!-- ── CADERAS ── -->
+      <ellipse id="cadera_der" cx="128" cy="240" rx="26" ry="20"
+               fill="{c("cadera_der")}" opacity="{op("cadera_der")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+      <ellipse id="cadera_izq" cx="192" cy="240" rx="26" ry="20"
+               fill="{c("cadera_izq")}" opacity="{op("cadera_izq")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+
+      <!-- ── GLUTEOS ── -->
+      <ellipse id="gluteo_der" cx="125" cy="252" rx="22" ry="18"
+               fill="{c("gluteo_der")}" opacity="{op("gluteo_der")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+      <ellipse id="gluteo_izq" cx="195" cy="252" rx="22" ry="18"
+               fill="{c("gluteo_izq")}" opacity="{op("gluteo_izq")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+
+      <!-- ── MUSLO ANTERIOR DER ── -->
+      <rect id="muslo_ant_der" x="102" y="258" width="44" height="80" rx="14"
+            fill="{c("muslo_ant_der")}" opacity="{op("muslo_ant_der")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+
+      <!-- ── MUSLO ANTERIOR IZQ ── -->
+      <rect id="muslo_ant_izq" x="174" y="258" width="44" height="80" rx="14"
+            fill="{c("muslo_ant_izq")}" opacity="{op("muslo_ant_izq")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+
+      <!-- ── MUSLO POSTERIOR DER ── -->
+      <rect id="muslo_post_der" x="104" y="262" width="40" height="76" rx="14"
+            fill="{c("muslo_post_der")}" opacity="{op("muslo_post_der")}" stroke="rgba(255,255,255,0.15)" stroke-width="1"
+            transform="translate(0,2)"/>
+
+      <!-- ── MUSLO POSTERIOR IZQ ── -->
+      <rect id="muslo_post_izq" x="176" y="262" width="40" height="76" rx="14"
+            fill="{c("muslo_post_izq")}" opacity="{op("muslo_post_izq")}" stroke="rgba(255,255,255,0.15)" stroke-width="1"
+            transform="translate(0,2)"/>
+
+      <!-- ── MUSLO INTERNO DER ── -->
+      <rect id="muslo_int_der" x="120" y="268" width="28" height="68" rx="10"
+            fill="{c("muslo_int_der")}" opacity="{op("muslo_int_der")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+
+      <!-- ── MUSLO INTERNO IZQ ── -->
+      <rect id="muslo_int_izq" x="172" y="268" width="28" height="68" rx="10"
+            fill="{c("muslo_int_izq")}" opacity="{op("muslo_int_izq")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+
+      <!-- ── RODILLA DER ── -->
+      <ellipse id="rodilla_der" cx="124" cy="346" rx="22" ry="16"
+               fill="{c("rodilla_der")}" opacity="{op("rodilla_der")}" stroke="rgba(255,255,255,0.25)" stroke-width="1.5"/>
+
+      <!-- ── RODILLA IZQ ── -->
+      <ellipse id="rodilla_izq" cx="196" cy="346" rx="22" ry="16"
+               fill="{c("rodilla_izq")}" opacity="{op("rodilla_izq")}" stroke="rgba(255,255,255,0.25)" stroke-width="1.5"/>
+
+      <!-- ── PIERNA DER ── -->
+      <rect id="pierna_der" x="108" y="360" width="32" height="80" rx="12"
+            fill="{c("pierna_der")}" opacity="{op("pierna_der")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+
+      <!-- ── PIERNA IZQ ── -->
+      <rect id="pierna_izq" x="180" y="360" width="32" height="80" rx="12"
+            fill="{c("pierna_izq")}" opacity="{op("pierna_izq")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+
+      <!-- ── TOBILLO DER ── -->
+      <ellipse id="tobillo_der" cx="124" cy="446" rx="18" ry="10"
+               fill="{c("tobillo_der")}" opacity="{op("tobillo_der")}" stroke="rgba(255,255,255,0.25)" stroke-width="1.5"/>
+
+      <!-- ── TOBILLO IZQ ── -->
+      <ellipse id="tobillo_izq" cx="196" cy="446" rx="18" ry="10"
+               fill="{c("tobillo_izq")}" opacity="{op("tobillo_izq")}" stroke="rgba(255,255,255,0.25)" stroke-width="1.5"/>
+
+      <!-- ── PIE DER ── -->
+      <ellipse id="pie_der" cx="120" cy="468" rx="22" ry="12"
+               fill="{c("pie_der")}" opacity="{op("pie_der")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+
+      <!-- ── PIE IZQ ── -->
+      <ellipse id="pie_izq" cx="200" cy="468" rx="22" ry="12"
+               fill="{c("pie_izq")}" opacity="{op("pie_izq")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+
+      <!-- ── LABELS ── -->
+      <text x="160" y="592" text-anchor="middle" fill="rgba(255,255,255,0.3)" 
+            font-size="9" font-family="Inter,sans-serif">Vista anterior · Zonas afectadas</text>
+    </svg>
+    """
+    return svg
+
+
+def render_cuerpo_humano(df_jugador, region_col):
+    """Renderiza la figura humana con las zonas del jugador coloreadas."""
+    if df_jugador.empty or not region_col:
+        return
+
+    # Contar lesiones por región
+    reg_counts = df_jugador[region_col].dropna().astype(str).str.upper().value_counts().to_dict()
+
+    # Mapear a zonas SVG con intensidad
+    zonas = set()
+    intensidad = {}
+    for region, cnt in reg_counts.items():
+        for region_key, zonas_svg in REGION_TO_ZONA.items():
+            if region_key.upper() == region or region in region_key.upper():
+                for z in zonas_svg:
+                    zonas.add(z)
+                    intensidad[z] = intensidad.get(z, 0) + cnt
+
+    svg = cuerpo_humano_svg(zonas, intensidad)
+
+    # Leyenda de zonas afectadas
+    leyenda = ""
+    for region, cnt in sorted(reg_counts.items(), key=lambda x: -x[1]):
+        if region not in ["NA", "OTRA", "NO-MUSC"]:
+            leyenda += f'<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.05);"><span style="font-size:12px;color:#94a3b8;">{region.title()}</span><span style="font-size:12px;font-weight:700;color:#f87171;">{cnt}</span></div>'
+
+    st.markdown(f"""
+    <div style="background:rgba(8,18,38,.95);border:1px solid rgba(200,16,46,.2);border-radius:16px;padding:20px;">
+        <div style="font-size:11px;color:#c8102e;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-bottom:12px;">Mapa corporal de lesiones</div>
+        <div style="display:flex;gap:16px;align-items:flex-start;">
+            <div style="flex:0 0 auto;">{svg}</div>
+            <div style="flex:1;max-height:480px;overflow-y:auto;">
+                <div style="font-size:10px;color:#60a5fa;font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;">Regiones afectadas</div>
+                {leyenda if leyenda else '<div style="color:#475569;font-size:12px;">Sin lesiones registradas</div>'}
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
 def pagina_estadisticas_medicas():
     st.markdown('<div class="sec-title">🏥 Estadísticas Médicas</div>',unsafe_allow_html=True)
     pdf_btn()
@@ -583,41 +804,65 @@ def pagina_estadisticas_medicas():
                 plotly_dark(fig3,240)
                 st.plotly_chart(fig3,use_container_width=True)
 
-    # ── Fila 2: 4 gráficos en 2 columnas ──────────────────────
+    # ── Fila 2: SIST_M-E (barras verticales) + N° lesiones x región (barras horiz) ──
     st.markdown("---")
-    est_me_col=next((c for c in les_df.columns if any(x in c.lower() for x in ["est_m","estructura","musculo","isquio","cuad","adu"])),est_col)
+
+    # Columna MUSCL_ID / SIST_M-E
+    sist_col = next((c for c in les_df.columns if any(x in c.upper() for x in ["MUSCL","SIST_M","MUSCUL_ID","MUSCL_ID"])), None)
+    # Si no existe, buscamos columna que describe músculo
+    if not sist_col:
+        sist_col = next((c for c in les_df.columns if any(x in c.lower() for x in ["muscl","sist_m","musculo_id"])), None)
 
     b1, b2 = st.columns(2)
 
-    # Col izq: N° lesiones x estructura barras VERTICALES (como Power BI)
     with b1:
-        if est_me_col:
-            st.markdown('<div class="subsec">N° lesiones x est. M-E</div>',unsafe_allow_html=True)
-            vc=les_df[est_me_col].value_counts().reset_index(); vc.columns=["Estructura","N°"]
-            vc=vc.sort_values("N°",ascending=False)
-            fig4=px.bar(vc,x="Estructura",y="N°",text="N°",
-                       color_discrete_sequence=["#4299e1"],template="plotly_dark")
-            fig4.update_traces(textposition="outside",textfont_color="#fff",
-                              marker_color="#4299e1",texttemplate="%{text:.0f}")
-            fig4.update_layout(xaxis_tickangle=-30,xaxis_title="",yaxis_title="N°")
-            plotly_dark(fig4, 320)
-            st.plotly_chart(fig4,use_container_width=True)
+        st.markdown('<div class="subsec">N° lesiones x SIST M-E</div>',unsafe_allow_html=True)
+        if sist_col:
+            import re as _re
+            def base_musculo(v):
+                return _re.sub(r'\s+(DER|IZQ|BILAT)$', '', str(v).strip().upper())
 
-    # Col der: N° lesiones x región barras HORIZONTALES
+            les_sist = les_df[sist_col].dropna().astype(str)
+            les_sist = les_sist[~les_sist.str.upper().isin(["NO-MUSC","NO MUSC","NA","—","NAN"])]
+            les_sist_base = les_sist.apply(base_musculo)
+            vc_s = les_sist_base.value_counts().reset_index()
+            vc_s.columns = ["Músculo","N°"]
+            vc_s = vc_s.sort_values("N°", ascending=True)  # ascendente para horizontal
+            n_s = len(vc_s)
+            alto_s = max(300, n_s * 36)
+            fig_s = px.bar(vc_s, x="N°", y="Músculo", orientation="h", text="N°",
+                          color_discrete_sequence=["#4299e1"], template="plotly_dark")
+            fig_s.update_traces(textposition="outside", textfont_color="#fff",
+                               marker_color="#4299e1", texttemplate="%{text:.0f}")
+            fig_s.update_layout(yaxis=dict(categoryorder="total ascending"),
+                               xaxis_title="N°", yaxis_title="")
+            plotly_dark(fig_s, alto_s)
+            st.plotly_chart(fig_s, use_container_width=True)
+        else:
+            st.info("No se encontró la columna MUSCL_ID / SIST M-E en los datos.")
+
     with b2:
         if region_col:
             st.markdown('<div class="subsec">N° lesiones x región</div>',unsafe_allow_html=True)
-            vc_r=les_df[region_col].value_counts().reset_index(); vc_r.columns=["Región","N°"]
-            vc_r=vc_r.sort_values("N°",ascending=True)
-            n_filas_r=len(vc_r)
-            alto_reg=max(320, n_filas_r*36)
-            fig5=px.bar(vc_r,x="N°",y="Región",orientation="h",text="N°",
-                       color_discrete_sequence=["#48bb78"],template="plotly_dark")
-            fig5.update_traces(textposition="outside",textfont_color="#fff",
-                              marker_color="#48bb78",texttemplate="%{text:.0f}")
-            fig5.update_layout(yaxis=dict(categoryorder="total ascending"),xaxis_title="N°",yaxis_title="")
+            vc_r = les_df[region_col].value_counts().reset_index(); vc_r.columns = ["Región","N°"]
+            vc_r = vc_r.sort_values("N°", ascending=True)
+            n_filas_r = len(vc_r)
+            alto_reg = max(300, n_filas_r * 36)
+            fig5 = px.bar(vc_r, x="N°", y="Región", orientation="h", text="N°",
+                         color_discrete_sequence=["#48bb78"], template="plotly_dark")
+            fig5.update_traces(textposition="outside", textfont_color="#fff",
+                              marker_color="#48bb78", texttemplate="%{text:.0f}")
+            fig5.update_layout(yaxis=dict(categoryorder="total ascending"),
+                              xaxis_title="N°", yaxis_title="")
             plotly_dark(fig5, alto_reg)
-            st.plotly_chart(fig5,use_container_width=True)
+            st.plotly_chart(fig5, use_container_width=True)
+
+    # ── Figura humana — solo cuando hay jugador seleccionado ──
+    if jsel != "Todas" and region_col:
+        st.markdown("---")
+        st.markdown('<div class="subsec">🫀 Mapa corporal — lesiones de '  + jsel + '</div>',unsafe_allow_html=True)
+        df_jug_les = dff[dff[jcol].astype(str) == jsel]
+        render_cuerpo_humano(df_jug_les, region_col)
 
     st.markdown("---")
     st.markdown('<div class="subsec">Registros completos</div>',unsafe_allow_html=True)
