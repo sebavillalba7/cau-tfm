@@ -620,7 +620,6 @@ def pagina_evaluaciones():
             st.markdown('<div class="subsec">Tabla de resultados</div>',unsafe_allow_html=True)
             show_cols=[jcol]+([pos_col] if pos_col else [])+[c for c in [ALT,ECC,RSI,CPF] if c in dff.columns]
             if fecha_col: show_cols=[fecha_col]+show_cols
-            tbl=dff[jsel if jsel!="Todos" else jcol].astype(str) if jsel!="Todos" else dff
             tbl=dff if jsel=="Todos" else dff[dff[jcol].astype(str)==jsel]
             tbl=tbl[[c for c in show_cols if c in tbl.columns]].sort_values(ALT,ascending=False) if ALT in tbl.columns else tbl
             num_cols_tbl=[c for c in [ALT,ECC,RSI,CPF] if c in tbl.columns]
