@@ -172,8 +172,8 @@ def plotly_dark(fig,h=300):
     return fig
 
 
-def html_table(df, highlight_cols=None, num_format=None):
-    """Tabla dark con headers coloreados, valores centrados, escala de color en columnas numéricas."""
+def html_table(df, highlight_cols=None, num_format=None, max_rows=20, height=420):
+    """Tabla dark con headers coloreados, valores centrados, escala de color. Scroll si hay más de max_rows."""
     if df.empty:
         st.info("Sin datos."); return
     highlight_cols = highlight_cols or []
@@ -222,12 +222,15 @@ def html_table(df, highlight_cols=None, num_format=None):
     for col in df.columns:
         headers += f'<th style="text-align:center;padding:10px 12px;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#60a5fa;background:rgba(26,90,180,0.25);border-bottom:2px solid rgba(26,90,180,0.4);">{col}</th>'
 
+    scroll_style = f"overflow-y:auto;max-height:{height}px;" if len(df) > max_rows else ""
     st.markdown(f'''
     <div style="background:#071428;border:1px solid rgba(26,90,180,0.3);border-radius:14px;overflow:hidden;margin-top:8px;">
+        <div style="{scroll_style}">
         <table style="width:100%;border-collapse:collapse;">
-            <thead><tr>{headers}</tr></thead>
+            <thead><tr style="position:sticky;top:0;z-index:2;">{headers}</tr></thead>
             <tbody>{rows_html}</tbody>
         </table>
+        </div>
     </div>''', unsafe_allow_html=True)
 
 def filtro_anio_widget(df,key):
@@ -484,7 +487,8 @@ def pagina_estadisticas_medicas():
     if osel!="Todas" and obs_col: dff=dff[dff[obs_col].astype(str)==osel]
     les_df=dff[dff[tipo_col].astype(str).str.upper()=="LESION"].copy() if tipo_col else dff.copy()
 
-    col_izq,col_mid,col_der=st.columns([1.2,1.4,1.4])
+    # ── Fila 1: tabla incidencias (col izq) + días x año + tipo lesión (col der) ──
+    col_izq, col_der = st.columns([1.1, 1.9])
 
     with col_izq:
         st.markdown('<div class="subsec">Distribución de incidencias</div>',unsafe_allow_html=True)
@@ -493,93 +497,113 @@ def pagina_estadisticas_medicas():
             grp_cols={"DAY_OFF_DXT":("_dxt","sum"),"N° INC":(jcol,"count")}
             if "AÑO" in dff.columns: grp_cols["AÑOS"]=("AÑO","nunique")
             tabla=dff.groupby(jcol).agg(**grp_cols).reset_index().sort_values("DAY_OFF_DXT",ascending=False)
-            html_table(tabla, highlight_cols=["DAY_OFF_DXT","N° INC"])
+            html_table(tabla, highlight_cols=["DAY_OFF_DXT","N° INC"], max_rows=20, height=400)
         else:
             tbl=dff[jcol].value_counts().reset_index(); tbl.columns=[jcol,"N°"]
-            html_table(tbl, highlight_cols=["N°"])
+            html_table(tbl, highlight_cols=["N°"], max_rows=20, height=400)
 
-    with col_mid:
+    with col_der:
+        # Días perdidos x año (barra horizontal)
         if dxt_col and "AÑO" in les_df.columns:
-            st.markdown('<div class="subsec">Días perdidos x año</div>',unsafe_allow_html=True)
+            st.markdown('<div class="subsec">Días perdidos x incidencias</div>',unsafe_allow_html=True)
             les_df["_dxt"]=to_num_col(les_df[dxt_col])
             por_anio=les_df.groupby("AÑO")["_dxt"].sum().reset_index().sort_values("AÑO")
             por_anio["AÑO"]=por_anio["AÑO"].astype(int).astype(str)
             fig=px.bar(por_anio,x="_dxt",y="AÑO",orientation="h",text="_dxt",
-                      color="_dxt",color_continuous_scale="Blues",template="plotly_dark")
-            fig.update_traces(textposition="outside",textfont_color="#fff",texttemplate="%{text:.0f}")
-            fig.update_coloraxes(showscale=False)
-            plotly_dark(fig,200)
+                      color_discrete_sequence=["#4299e1"],template="plotly_dark")
+            fig.update_traces(textposition="outside",textfont_color="#fff",
+                             texttemplate="%{text:.0f}",marker_color="#4299e1")
+            plotly_dark(fig,180)
             st.plotly_chart(fig,use_container_width=True)
 
-        if lesion_tipo_col and dxt_col:
-            st.markdown('<div class="subsec">Días perdidos x tipo lesión</div>',unsafe_allow_html=True)
-            les_df["_dxt"]=to_num_col(les_df[dxt_col])
-            por_tipo=les_df.groupby(lesion_tipo_col)["_dxt"].sum().reset_index().sort_values("_dxt",ascending=False)
-            total=por_tipo["_dxt"].sum()
-            por_tipo["pct"]=por_tipo["_dxt"]/total*100
-            # Top 5 + Otros
-            top5=por_tipo.head(5).copy()
-            otros_sum=por_tipo.iloc[5:]["_dxt"].sum() if len(por_tipo)>5 else 0
-            if otros_sum>0:
-                top5=pd.concat([top5,pd.DataFrame([{lesion_tipo_col:"Otros","_dxt":otros_sum,"pct":otros_sum/total*100}])],ignore_index=True)
-            # Abreviar nombres largos
-            top5[lesion_tipo_col]=top5[lesion_tipo_col].astype(str).str[:28]
-            fig2=px.pie(top5,values="_dxt",names=lesion_tipo_col,hole=0.55,
-                       template="plotly_dark",color_discrete_sequence=["#4299e1","#805ad5","#ed8936","#48bb78","#f56565","#718096"])
-            fig2.update_traces(textposition="outside",textinfo="percent",
-                              pull=[0.03]*len(top5),textfont_size=11)
-            fig2.update_layout(legend=dict(orientation="v",x=1.02,y=0.5,font_size=10))
-            plotly_dark(fig2,240)
-            st.plotly_chart(fig2,use_container_width=True)
+        # Días perdidos x tipo lesión (donut) — lado a lado con clasificación
+        g1, g2 = st.columns(2)
+        with g1:
+            if lesion_tipo_col and dxt_col:
+                st.markdown('<div class="subsec">Días perdidos x lesión</div>',unsafe_allow_html=True)
+                les_df["_dxt"]=to_num_col(les_df[dxt_col])
+                por_tipo=les_df.groupby(lesion_tipo_col)["_dxt"].sum().reset_index().sort_values("_dxt",ascending=False)
+                total=por_tipo["_dxt"].sum()
+                top5=por_tipo.head(5).copy()
+                otros_sum=por_tipo.iloc[5:]["_dxt"].sum() if len(por_tipo)>5 else 0
+                if otros_sum>0:
+                    top5=pd.concat([top5,pd.DataFrame([{lesion_tipo_col:"Otros","_dxt":otros_sum}])],ignore_index=True)
+                # Labels con valor y %
+                top5["label"]=top5[lesion_tipo_col].astype(str).str[:20]
+                top5["pct_str"]=(top5["_dxt"]/total*100).round(2).astype(str)+"%"
+                COLORES_TIPO=["#4299e1","#805ad5","#ed8936","#48bb78","#f56565","#718096"]
+                fig2=go.Figure(go.Pie(
+                    labels=top5["label"],
+                    values=top5["_dxt"],
+                    hole=0.55,
+                    marker_colors=COLORES_TIPO[:len(top5)],
+                    texttemplate="%{value:.0f}<br>(%{percent:.2%})",
+                    textposition="outside",
+                    textfont_size=10,
+                    hovertemplate="<b>%{label}</b><br>Días: %{value:.0f}<extra></extra>"
+                ))
+                fig2.update_layout(
+                    title=dict(text="DÍAS PERDIDOS x LESIÓN",font_size=11,font_color="#94a3b8",x=0.5),
+                    legend=dict(orientation="v",x=1.0,y=0.5,font_size=9,bgcolor="rgba(0,0,0,0)"),
+                    template="plotly_dark",showlegend=True
+                )
+                plotly_dark(fig2,240)
+                st.plotly_chart(fig2,use_container_width=True)
 
-    with col_der:
-        if est_col and dxt_col:
-            st.markdown('<div class="subsec">Días perdidos x clasificación</div>',unsafe_allow_html=True)
-            les_df["_dxt"]=to_num_col(les_df[dxt_col])
-            por_est=les_df.groupby(est_col)["_dxt"].sum().reset_index().sort_values("_dxt",ascending=False)
-            total_est=por_est["_dxt"].sum()
-            por_est["pct"]=(por_est["_dxt"]/total_est*100).round(2)
-            por_est["label"]=por_est[est_col].astype(str)+" ("+por_est["pct"].astype(str)+"%)"
-            COLORS={"MUSCULAR":"#4299e1","ARTICULAR":"#805ad5","OSEA":"#ed8936","TENDINOSO":"#e53e3e","TENDINOSA":"#f6ad55","NA":"#718096"}
-            colors=[COLORS.get(str(v).upper().strip(),"#64748b") for v in por_est[est_col]]
-            fig3=go.Figure(go.Pie(
-                labels=por_est[est_col].astype(str),
-                values=por_est["_dxt"],
-                hole=0.55,
-                marker_colors=colors,
-                texttemplate="%{value:.0f}<br>(%{percent:.1%})",
-                textposition="outside",
-                hovertemplate="<b>%{label}</b><br>Días: %{value:.0f}<br>%{percent:.1%}<extra></extra>"
-            ))
-            fig3.update_layout(
-                title=dict(text="DÍAS PERDIDOS x CLASIFICACIÓN LESIÓN",font_size=12,font_color="#94a3b8",x=0.5),
-                legend=dict(orientation="v",x=1.02,y=0.5,font_size=11,
-                           itemsizing="constant",bgcolor="rgba(0,0,0,0)"),
-                template="plotly_dark"
-            )
-            plotly_dark(fig3,220)
-            st.plotly_chart(fig3,use_container_width=True)
+        with g2:
+            if est_col and dxt_col:
+                st.markdown('<div class="subsec">Días perdidos x clasificación</div>',unsafe_allow_html=True)
+                les_df["_dxt"]=to_num_col(les_df[dxt_col])
+                por_est=les_df.groupby(est_col)["_dxt"].sum().reset_index().sort_values("_dxt",ascending=False)
+                total_est=por_est["_dxt"].sum()
+                COLORS={"MUSCULAR":"#4299e1","ARTICULAR":"#805ad5","OSEA":"#ed8936",
+                        "TENDINOSO":"#e53e3e","TENDINOSA":"#f6ad55","NA":"#718096"}
+                colors=[COLORS.get(str(v).upper().strip(),"#64748b") for v in por_est[est_col]]
+                fig3=go.Figure(go.Pie(
+                    labels=por_est[est_col].astype(str),
+                    values=por_est["_dxt"],
+                    hole=0.55,
+                    marker_colors=colors,
+                    texttemplate="%{value:.0f}<br>(%{percent:.2%})",
+                    textposition="outside",
+                    textfont_size=10,
+                    hovertemplate="<b>%{label}</b><br>Días: %{value:.0f}<extra></extra>"
+                ))
+                fig3.update_layout(
+                    title=dict(text="DÍAS PERDIDOS x CLASIFICACIÓN LESIÓN",font_size=11,font_color="#94a3b8",x=0.5),
+                    legend=dict(orientation="h",x=0.5,y=-0.15,xanchor="center",font_size=9,
+                               bgcolor="rgba(0,0,0,0)"),
+                    template="plotly_dark"
+                )
+                plotly_dark(fig3,240)
+                st.plotly_chart(fig3,use_container_width=True)
 
-        est_me_col=next((c for c in les_df.columns if any(x in c.lower() for x in ["est_m","estructura","musculo","isquio","cuad","adu"])),est_col)
+    # ── Fila 2: N° lesiones x estructura M-E  +  N° lesiones x región ──
+    st.markdown("---")
+    b1, b2 = st.columns(2)
+
+    est_me_col=next((c for c in les_df.columns if any(x in c.lower() for x in ["est_m","estructura","musculo","isquio","cuad","adu"])),est_col)
+    with b1:
         if est_me_col:
-            st.markdown('<div class="subsec">N° lesiones x estructura</div>',unsafe_allow_html=True)
-            vc=les_df[est_me_col].value_counts().head(10).reset_index(); vc.columns=["Estructura","N°"]
+            st.markdown('<div class="subsec">N° lesiones x est. M-E</div>',unsafe_allow_html=True)
+            vc=les_df[est_me_col].value_counts().reset_index(); vc.columns=["Estructura","N°"]
+            vc=vc.sort_values("N°",ascending=True)
             fig4=px.bar(vc,x="N°",y="Estructura",orientation="h",text="N°",
-                       color="N°",color_continuous_scale="Blues",template="plotly_dark")
-            fig4.update_traces(textposition="outside",textfont_color="#fff")
-            fig4.update_coloraxes(showscale=False)
-            plotly_dark(fig4,260)
+                       color_discrete_sequence=["#4299e1"],template="plotly_dark")
+            fig4.update_traces(textposition="outside",textfont_color="#fff",marker_color="#4299e1")
+            plotly_dark(fig4,320)
             st.plotly_chart(fig4,use_container_width=True)
 
-    if region_col:
-        st.markdown('<div class="subsec">N° lesiones x región</div>',unsafe_allow_html=True)
-        vc_r=les_df[region_col].value_counts().reset_index(); vc_r.columns=["Región","N°"]
-        fig5=px.bar(vc_r.sort_values("N°"),x="Región",y="N°",text="N°",
-                   color="N°",color_continuous_scale="Reds",template="plotly_dark")
-        fig5.update_traces(textposition="outside",textfont_color="#fff")
-        fig5.update_coloraxes(showscale=False)
-        plotly_dark(fig5,280)
-        st.plotly_chart(fig5,use_container_width=True)
+    with b2:
+        if region_col:
+            st.markdown('<div class="subsec">N° lesiones x región</div>',unsafe_allow_html=True)
+            vc_r=les_df[region_col].value_counts().reset_index(); vc_r.columns=["Región","N°"]
+            vc_r=vc_r.sort_values("N°",ascending=True)
+            fig5=px.bar(vc_r,x="N°",y="Región",orientation="h",text="N°",
+                       color_discrete_sequence=["#48bb78"],template="plotly_dark")
+            fig5.update_traces(textposition="outside",textfont_color="#fff",marker_color="#48bb78")
+            plotly_dark(fig5,320)
+            st.plotly_chart(fig5,use_container_width=True)
 
     st.markdown("---")
     st.markdown('<div class="subsec">Registros completos</div>',unsafe_allow_html=True)
