@@ -460,38 +460,31 @@ def pagina_historial():
 # FIGURA HUMANA SVG — mapeo de lesiones
 # ══════════════════════════════════════════════════════════════
 
-# ──────────────────────────────────────────────────────────────
-# MAPEO MUSCL_ID → (zona_svg, lado)
-# Extrae zona anatómica y lado (der/izq/bilat) de MUSCL_ID
-# ──────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════
+# FIGURA HUMANA — imagen real con puntos superpuestos
+# ══════════════════════════════════════════════════════════════
 import re as _re
 
 MUSCULO_A_ZONA = {
-    # Isquiotibiales
     "ISQUIOTIBIAL":              "muslo_post",
-    # Cuádriceps y recto anterior
     "CUADRICEPS":                "muslo_ant",
     "RECTO ANTERIOR CUADRICEPS": "muslo_ant",
     "RECTO ANTERIOR":            "muslo_ant",
     "TENDON CUADRICIPITAL":      "rodilla",
     "TENDON ROTULIANO":          "rodilla",
     "ROTULA":                    "rodilla",
-    # Aductores / muslo interno
     "ADUCTOR":                   "muslo_int",
     "PECTINEO":                  "muslo_int",
     "OBTURADOR":                 "muslo_int",
     "TRAYECTO INGLE":            "muslo_int",
-    # Glúteo
     "GLUTEO":                    "gluteo",
     "TFL":                       "gluteo",
     "ILIOPSOAS":                 "cadera",
-    # Rodilla / ligamentos
     "MENISCO":                   "rodilla",
     "LCA":                       "rodilla",
     "LLI":                       "rodilla",
     "PATA DE GANZO":             "rodilla",
     "RODILLA":                   "rodilla",
-    # Pierna
     "GEMELO":                    "pierna",
     "GEMELOS":                   "pierna",
     "SOLEO":                     "pierna",
@@ -503,21 +496,16 @@ MUSCULO_A_ZONA = {
     "TENDON PERONEO":            "pierna",
     "AQUILES":                   "tobillo",
     "LIGAMENTO EXTERNO":         "tobillo",
-    # Tobillo / pie
     "PIE":                       "pie",
     "SESAMOIDEO":                "pie",
-    # Pubis / abdomen
     "PUBIS":                     "pubis",
     "TENDON DEL PUBIS":          "pubis",
     "PERINE":                    "pubis",
     "RECTO ABDOMEN":             "abdomen",
-    # Lumbar / espalda
     "LUMBARES":                  "lumbar",
-    # Hombro / brazo
     "SUB ESCAPULAR":             "hombro",
     "HOMBRO":                    "hombro",
     "MUÑECA":                    "antebrazo",
-    # Cabeza / cara
     "PARPADO":                   "cabeza",
     "MAXILAR":                   "cabeza",
     "NARIZ":                     "cabeza",
@@ -545,323 +533,205 @@ REGION_A_ZONA = {
     "ANTE BRAZO":      "antebrazo",
 }
 
+# Coordenadas (x%, y%) sobre la imagen hb.png (400x350)
+# Frontal: 0-50% del ancho | Posterior: 50-100% del ancho
+# DER del cuerpo = izquierda de la figura frontal (~19-20%)
+# IZQ del cuerpo = derecha de la figura frontal (~30-31%)
+ZONA_COORDS = {
+    "cabeza":         {"der": (25.0, 6.5),   "izq": (25.0, 6.5)},
+    "hombro_der":     {"der": (14.5, 23.0),  "izq": None},
+    "hombro_izq":     {"izq": (36.0, 23.0),  "der": None},
+    "abdomen":        {"der": (25.0, 42.0),  "izq": (25.0, 42.0)},
+    "pubis":          {"der": (25.0, 57.0),  "izq": (25.0, 57.0)},
+    "cadera_der":     {"der": (17.5, 60.5),  "izq": None},
+    "cadera_izq":     {"izq": (32.5, 60.5),  "der": None},
+    "muslo_ant_der":  {"der": (19.5, 68.5),  "izq": None},
+    "muslo_ant_izq":  {"izq": (30.5, 68.5),  "der": None},
+    "muslo_int_der":  {"der": (23.0, 71.0),  "izq": None},
+    "muslo_int_izq":  {"izq": (27.0, 71.0),  "der": None},
+    "rodilla_der":    {"der": (19.5, 82.0),  "izq": None},
+    "rodilla_izq":    {"izq": (30.5, 82.0),  "der": None},
+    "pierna_der":     {"der": (19.0, 91.0),  "izq": None},
+    "pierna_izq":     {"izq": (31.0, 91.0),  "der": None},
+    "tobillo_der":    {"der": (18.5, 97.5),  "izq": None},
+    "tobillo_izq":    {"izq": (31.5, 97.5),  "der": None},
+    "pie_der":        {"der": (18.0, 99.5),  "izq": None},
+    "pie_izq":        {"izq": (32.0, 99.5),  "der": None},
+    "antebrazo_der":  {"der": (10.5, 51.0),  "izq": None},
+    "antebrazo_izq":  {"izq": (39.5, 51.0),  "der": None},
+    # POSTERIOR (columna derecha de la imagen)
+    "lumbar":         {"der": (75.0, 43.0),  "izq": (75.0, 43.0)},
+    "gluteo_der":     {"der": (71.5, 61.0),  "izq": None},
+    "gluteo_izq":     {"izq": (78.5, 61.0),  "der": None},
+    "muslo_post_der": {"der": (71.0, 70.5),  "izq": None},
+    "muslo_post_izq": {"izq": (79.0, 70.5),  "der": None},
+    "muslo_ext_der":  {"der": (68.0, 68.5),  "izq": None},
+    "muslo_ext_izq":  {"izq": (82.0, 68.5),  "der": None},
+}
+
 def parsear_muscl_id(muscl_id: str) -> tuple:
-    """
-    Dado MUSCL_ID como 'ISQUIOTIBIAL DER', 'MENISCO IZQ', 'ADUCTOR BILAT'
-    retorna (zona_svg, lado) donde lado es 'der', 'izq', o 'bilat'
-    """
     if not muscl_id or str(muscl_id).upper() in ["NO-MUSC","NO MUSC","NA","NAN","—",""]:
         return None, None
     s = str(muscl_id).strip().upper()
-    # Extraer lado
     lado = "bilat"
-    if s.endswith(" DER"): lado = "der"; s = s[:-4].strip()
+    if s.endswith(" DER"):   lado = "der"; s = s[:-4].strip()
     elif s.endswith(" IZQ"): lado = "izq"; s = s[:-4].strip()
     elif s.endswith(" BILAT"): lado = "bilat"; s = s[:-6].strip()
-    # Buscar zona
     zona = None
     for key, z in MUSCULO_A_ZONA.items():
-        if s.startswith(key) or key in s:
-            zona = z
-            break
+        if s == key or s.startswith(key):
+            zona = z; break
+    if not zona:
+        for key, z in MUSCULO_A_ZONA.items():
+            if key in s:
+                zona = z; break
     return zona, lado
 
 def zonas_con_lado(zona_base: str, lado: str) -> list:
-    """Convierte zona_base + lado en lista de IDs SVG."""
     if not zona_base: return []
     if lado == "der":   return [f"{zona_base}_der"]
     if lado == "izq":   return [f"{zona_base}_izq"]
-    return [f"{zona_base}_der", f"{zona_base}_izq"]  # bilat
-
-
-def cuerpo_humano_svg(zonas_intensidad: dict) -> str:
-    """
-    Genera SVG anatómico de calidad del cuerpo humano.
-    zonas_intensidad: dict {zona_id: count}
-    Zonas: muslo_ant_der/izq, muslo_post_der/izq, muslo_int_der/izq,
-           rodilla_der/izq, pierna_der/izq, tobillo_der/izq, pie_der/izq,
-           gluteo_der/izq, pubis, abdomen, lumbar, hombro_der/izq,
-           cadera_der/izq, cabeza, antebrazo_der/izq
-    """
-    max_v = max(zonas_intensidad.values()) if zonas_intensidad else 1
-
-    def fill(zona):
-        if zona not in zonas_intensidad:
-            return "#1e3a5f"
-        ratio = min(zonas_intensidad[zona] / max_v, 1.0)
-        r = int(220 + 35 * ratio)
-        g = int(50 * (1 - ratio))
-        b = int(30 * (1 - ratio))
-        return f"rgb({r},{g},{b})"
-
-    def glow(zona):
-        return f'filter:drop-shadow(0 0 6px {fill(zona)});' if zona in zonas_intensidad else ""
-
-    f = fill  # alias corto
-
-    # SVG anatómico profesional — vista frontal
-    svg = f"""<svg viewBox="0 0 280 580" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:260px;display:block;margin:0 auto;">
-  <defs>
-    <radialGradient id="bg" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#0d1e3c"/>
-      <stop offset="100%" stop-color="#071428"/>
-    </radialGradient>
-  </defs>
-  <rect width="280" height="580" fill="url(#bg)" rx="14"/>
-
-  <!-- CABEZA -->
-  <ellipse cx="140" cy="44" rx="30" ry="36"
-    fill="{f('cabeza')}" stroke="rgba(255,255,255,0.2)" stroke-width="1.2"
-    style="{glow('cabeza')}"/>
-
-  <!-- CUELLO -->
-  <rect x="128" y="78" width="24" height="20" rx="5"
-    fill="#1a3050" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
-
-  <!-- TORSO -->
-  <path d="M90,98 Q74,108 70,135 L68,200 Q90,212 140,214 Q190,212 212,200 L210,135 Q206,108 190,98 Z"
-    fill="#1e3a5f" stroke="rgba(255,255,255,0.12)" stroke-width="1"/>
-
-  <!-- PECTORAL DER (decorativo) -->
-  <path d="M95,118 Q110,112 130,116 Q130,140 110,146 Q92,140 95,118Z"
-    fill="#1a3050" stroke="rgba(255,255,255,0.08)" stroke-width="0.8"/>
-  <!-- PECTORAL IZQ -->
-  <path d="M185,118 Q170,112 150,116 Q150,140 170,146 Q188,140 185,118Z"
-    fill="#1a3050" stroke="rgba(255,255,255,0.08)" stroke-width="0.8"/>
-
-  <!-- ABDOMEN -->
-  <rect x="112" y="160" width="56" height="52" rx="10"
-    fill="{f('abdomen')}" stroke="rgba(255,255,255,0.15)" stroke-width="1"
-    style="{glow('abdomen')}"/>
-
-  <!-- LUMBAR -->
-  <rect x="114" y="170" width="52" height="36" rx="8"
-    fill="{f('lumbar')}" stroke="rgba(255,255,255,0.12)" stroke-width="1"
-    style="{glow('lumbar')}"/>
-
-  <!-- PUBIS -->
-  <ellipse cx="140" cy="222" rx="28" ry="14"
-    fill="{f('pubis')}" stroke="rgba(255,255,255,0.15)" stroke-width="1"
-    style="{glow('pubis')}"/>
-
-  <!-- HOMBRO DER -->
-  <ellipse cx="76" cy="114" rx="18" ry="16"
-    fill="{f('hombro_der')}" stroke="rgba(255,255,255,0.2)" stroke-width="1.2"
-    style="{glow('hombro_der')}"/>
-  <!-- HOMBRO IZQ -->
-  <ellipse cx="204" cy="114" rx="18" ry="16"
-    fill="{f('hombro_izq')}" stroke="rgba(255,255,255,0.2)" stroke-width="1.2"
-    style="{glow('hombro_izq')}"/>
-
-  <!-- BRAZO SUP DER -->
-  <rect x="56" y="128" width="22" height="72" rx="10"
-    fill="#1a3050" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
-  <!-- BRAZO SUP IZQ -->
-  <rect x="202" y="128" width="22" height="72" rx="10"
-    fill="#1a3050" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
-
-  <!-- ANTEBRAZO DER -->
-  <rect x="52" y="202" width="20" height="64" rx="9"
-    fill="{f('antebrazo_der')}" stroke="rgba(255,255,255,0.15)" stroke-width="1"
-    style="{glow('antebrazo_der')}"/>
-  <!-- ANTEBRAZO IZQ -->
-  <rect x="208" y="202" width="20" height="64" rx="9"
-    fill="{f('antebrazo_izq')}" stroke="rgba(255,255,255,0.15)" stroke-width="1"
-    style="{glow('antebrazo_izq')}"/>
-
-  <!-- CADERA DER -->
-  <path d="M106,212 Q88,218 84,240 Q86,256 110,258 Q122,250 120,234 Z"
-    fill="{f('cadera_der')}" stroke="rgba(255,255,255,0.15)" stroke-width="1"
-    style="{glow('cadera_der')}"/>
-  <!-- CADERA IZQ -->
-  <path d="M174,212 Q192,218 196,240 Q194,256 170,258 Q158,250 160,234 Z"
-    fill="{f('cadera_izq')}" stroke="rgba(255,255,255,0.15)" stroke-width="1"
-    style="{glow('cadera_izq')}"/>
-
-  <!-- GLUTEO DER -->
-  <ellipse cx="108" cy="248" rx="22" ry="18"
-    fill="{f('gluteo_der')}" stroke="rgba(255,255,255,0.15)" stroke-width="1"
-    style="{glow('gluteo_der')}"/>
-  <!-- GLUTEO IZQ -->
-  <ellipse cx="172" cy="248" rx="22" ry="18"
-    fill="{f('gluteo_izq')}" stroke="rgba(255,255,255,0.15)" stroke-width="1"
-    style="{glow('gluteo_izq')}"/>
-
-  <!-- MUSLO ANT DER (frente, capa superior) -->
-  <path d="M94,258 Q84,268 82,310 Q84,338 104,342 Q120,336 122,308 Q120,268 110,256 Z"
-    fill="{f('muslo_ant_der')}" stroke="rgba(255,255,255,0.18)" stroke-width="1.2"
-    style="{glow('muslo_ant_der')}"/>
-  <!-- MUSLO ANT IZQ -->
-  <path d="M186,258 Q196,268 198,310 Q196,338 176,342 Q160,336 158,308 Q160,268 170,256 Z"
-    fill="{f('muslo_ant_izq')}" stroke="rgba(255,255,255,0.18)" stroke-width="1.2"
-    style="{glow('muslo_ant_izq')}"/>
-
-  <!-- MUSLO INT DER -->
-  <path d="M110,262 Q122,268 126,308 Q120,334 110,338 Q100,328 98,298 Q98,272 110,262Z"
-    fill="{f('muslo_int_der')}" stroke="rgba(255,255,255,0.12)" stroke-width="1"
-    style="{glow('muslo_int_der')}"/>
-  <!-- MUSLO INT IZQ -->
-  <path d="M170,262 Q158,268 154,308 Q160,334 170,338 Q180,328 182,298 Q182,272 170,262Z"
-    fill="{f('muslo_int_izq')}" stroke="rgba(255,255,255,0.12)" stroke-width="1"
-    style="{glow('muslo_int_izq')}"/>
-
-  <!-- MUSLO POST DER (mismo espacio, color diferente — solo visible si afectado) -->
-  <path d="M86,268 Q82,300 84,330 Q90,342 106,344 Q118,336 120,308 Q118,272 106,260Z"
-    fill="{f('muslo_post_der')}" stroke="rgba(255,255,255,0.1)" stroke-width="1"
-    opacity="{'0.85' if 'muslo_post_der' in zonas_intensidad else '0'}"
-    style="{glow('muslo_post_der')}"/>
-  <!-- MUSLO POST IZQ -->
-  <path d="M194,268 Q198,300 196,330 Q190,342 174,344 Q162,336 160,308 Q162,272 174,260Z"
-    fill="{f('muslo_post_izq')}" stroke="rgba(255,255,255,0.1)" stroke-width="1"
-    opacity="{'0.85' if 'muslo_post_izq' in zonas_intensidad else '0'}"
-    style="{glow('muslo_post_izq')}"/>
-
-  <!-- MUSLO EXT DER -->
-  <path d="M82,268 Q72,290 74,322 Q80,340 90,342 Q84,310 84,278Z"
-    fill="{f('muslo_ext_der')}" stroke="rgba(255,255,255,0.1)" stroke-width="1"
-    opacity="{'0.9' if 'muslo_ext_der' in zonas_intensidad else '0'}"
-    style="{glow('muslo_ext_der')}"/>
-
-  <!-- RODILLA DER -->
-  <ellipse cx="103" cy="350" rx="20" ry="14"
-    fill="{f('rodilla_der')}" stroke="rgba(255,255,255,0.22)" stroke-width="1.5"
-    style="{glow('rodilla_der')}"/>
-  <!-- RODILLA IZQ -->
-  <ellipse cx="177" cy="350" rx="20" ry="14"
-    fill="{f('rodilla_izq')}" stroke="rgba(255,255,255,0.22)" stroke-width="1.5"
-    style="{glow('rodilla_izq')}"/>
-
-  <!-- PIERNA DER -->
-  <path d="M86,362 Q80,390 82,420 Q86,442 104,446 Q118,440 120,418 Q120,390 118,362 Q110,356 86,362Z"
-    fill="{f('pierna_der')}" stroke="rgba(255,255,255,0.18)" stroke-width="1.2"
-    style="{glow('pierna_der')}"/>
-  <!-- PIERNA IZQ -->
-  <path d="M194,362 Q200,390 198,420 Q194,442 176,446 Q162,440 160,418 Q160,390 162,362 Q170,356 194,362Z"
-    fill="{f('pierna_izq')}" stroke="rgba(255,255,255,0.18)" stroke-width="1.2"
-    style="{glow('pierna_izq')}"/>
-
-  <!-- TOBILLO DER -->
-  <ellipse cx="103" cy="452" rx="17" ry="10"
-    fill="{f('tobillo_der')}" stroke="rgba(255,255,255,0.22)" stroke-width="1.5"
-    style="{glow('tobillo_der')}"/>
-  <!-- TOBILLO IZQ -->
-  <ellipse cx="177" cy="452" rx="17" ry="10"
-    fill="{f('tobillo_izq')}" stroke="rgba(255,255,255,0.22)" stroke-width="1.5"
-    style="{glow('tobillo_izq')}"/>
-
-  <!-- PIE DER -->
-  <ellipse cx="100" cy="472" rx="21" ry="11"
-    fill="{f('pie_der')}" stroke="rgba(255,255,255,0.18)" stroke-width="1.2"
-    style="{glow('pie_der')}"/>
-  <!-- PIE IZQ -->
-  <ellipse cx="180" cy="472" rx="21" ry="11"
-    fill="{f('pie_izq')}" stroke="rgba(255,255,255,0.18)" stroke-width="1.2"
-    style="{glow('pie_izq')}"/>
-
-  <!-- MANO DER -->
-  <ellipse cx="50" cy="278" rx="13" ry="10" fill="#1a3050" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
-  <!-- MANO IZQ -->
-  <ellipse cx="230" cy="278" rx="13" ry="10" fill="#1a3050" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
-
-  <!-- LABEL -->
-  <text x="140" y="560" text-anchor="middle" fill="rgba(255,255,255,0.25)"
-        font-size="9" font-family="Inter,sans-serif" letter-spacing="1">VISTA FRONTAL</text>
-</svg>"""
-    return svg
-
+    return [f"{zona_base}_der", f"{zona_base}_izq"]
 
 def render_cuerpo_humano(df_jugador, region_col):
-    """Renderiza la figura humana usando MUSCL_ID + LADO para precisión."""
+    """Figura humana real con puntos coloreados superpuestos."""
     if df_jugador.empty:
         return
 
     zonas_intensidad = {}
-
-    # Columnas disponibles
     muscl_col = next((c for c in df_jugador.columns if "muscl" in c.lower() or "sist_m" in c.lower()), None)
-    lado_col   = next((c for c in df_jugador.columns if c.upper() == "LADO"), None)
+    lado_col  = next((c for c in df_jugador.columns if c.upper() == "LADO"), None)
 
     for _, row in df_jugador.iterrows():
-        # 1. Intentar parsear MUSCL_ID (más preciso)
         zona, lado = None, None
         if muscl_col:
-            muscl_val = str(row.get(muscl_col, ""))
-            zona, lado = parsear_muscl_id(muscl_val)
-
-        # 2. Si no hay MUSCL_ID útil, usar REGION
+            zona, lado = parsear_muscl_id(str(row.get(muscl_col, "")))
         if not zona and region_col and region_col in row.index:
             reg = str(row[region_col]).strip().upper()
             zona = REGION_A_ZONA.get(reg)
-            # lado por columna LADO
             if lado_col and lado_col in row.index:
                 l = str(row[lado_col]).strip().upper()
-                if l in ["DER","DERECHO","R","RIGHT"]:   lado = "der"
+                if l in ["DER","DERECHO","R","RIGHT"]:    lado = "der"
                 elif l in ["IZQ","IZQUIERDO","L","LEFT"]: lado = "izq"
                 else: lado = "bilat"
             else:
                 lado = "bilat"
-
         if not zona: continue
-
-        # 3. Determinar zonas SVG finales con lado
-        svgs = zonas_con_lado(zona, lado or "bilat")
-        for s in svgs:
+        for s in zonas_con_lado(zona, lado or "bilat"):
             zonas_intensidad[s] = zonas_intensidad.get(s, 0) + 1
 
-    svg = cuerpo_humano_svg(zonas_intensidad)
-
-    # Leyenda usando zonas_intensidad y REGION del dataframe
+    # Leyenda
     leyenda_rows = ""
     if region_col and region_col in df_jugador.columns:
         reg_counts = df_jugador[region_col].dropna().astype(str).str.upper().value_counts().to_dict()
         for region, cnt in sorted(reg_counts.items(), key=lambda x: -x[1]):
-            if region not in ["NA", "OTRA", "NO-MUSC", "NAN"]:
-                leyenda_rows += f"""
-            <tr>
-                <td style="padding:8px 12px;color:#94a3b8;font-size:13px;">{region.title()}</td>
-                <td style="padding:8px 12px;color:#f87171;font-weight:700;font-size:13px;text-align:right;">{cnt}</td>
-            </tr>"""
-    else:
-        for zona, cnt in sorted(zonas_intensidad.items(), key=lambda x: -x[1]):
-            leyenda_rows += f"""
-            <tr>
-                <td style="padding:8px 12px;color:#94a3b8;font-size:13px;">{zona.replace("_"," ").title()}</td>
-                <td style="padding:8px 12px;color:#f87171;font-weight:700;font-size:13px;text-align:right;">{cnt}</td>
-            </tr>"""
+            if region not in ["NA","OTRA","NO-MUSC","NAN"]:
+                leyenda_rows += f"""<tr>
+                <td style="padding:6px 10px;color:#94a3b8;font-size:12px;">{region.title()}</td>
+                <td style="padding:6px 10px;color:#f87171;font-weight:700;font-size:12px;text-align:right;">{cnt}</td>
+                </tr>"""
 
-    # HTML completo que se inyecta via components
+    # Construir puntos SVG sobre la imagen
+    max_v = max(zonas_intensidad.values()) if zonas_intensidad else 1
+
+    def punto_color(cnt):
+        ratio = min(cnt / max_v, 1.0)
+        r = int(220 + 35 * ratio)
+        g = int(60 * (1 - ratio))
+        b = int(40 * (1 - ratio))
+        return f"rgb({r},{g},{b})"
+
+    puntos_html = ""
+    for zona_id, cnt in zonas_intensidad.items():
+        coords_entry = ZONA_COORDS.get(zona_id)
+        if not coords_entry:
+            # Intentar con solo la clave base (sin _der/_izq)
+            base = zona_id.rsplit("_", 1)[0] if "_" in zona_id else zona_id
+            coords_entry = ZONA_COORDS.get(base)
+        if not coords_entry:
+            continue
+        # Obtener coordenadas
+        lado_key = "der" if zona_id.endswith("_der") else ("izq" if zona_id.endswith("_izq") else "der")
+        coord = coords_entry.get(lado_key) or coords_entry.get("der") or coords_entry.get("izq")
+        if not coord:
+            continue
+        x_pct, y_pct = coord
+        color = punto_color(cnt)
+        size = 14 + min(cnt * 2, 12)  # tamaño proporcional
+        puntos_html += f"""
+        <div title="{zona_id.replace('_',' ').title()}: {cnt} lesión(es)"
+             style="position:absolute;left:{x_pct}%;top:{y_pct}%;
+                    width:{size}px;height:{size}px;
+                    background:{color};border-radius:50%;
+                    transform:translate(-50%,-50%);
+                    border:2px solid rgba(255,255,255,0.8);
+                    box-shadow:0 0 8px {color},0 0 16px rgba(200,16,46,0.5);
+                    cursor:pointer;z-index:10;
+                    animation:pulse 1.5s ease-in-out infinite alternate;">
+        </div>"""
+
+    # Imagen en base64
+    img_b64_val = img_b64(ASSETS / "hb.png") or ""
+    img_tag = f'<img src="data:image/png;base64,{img_b64_val}" style="width:100%;display:block;">' if img_b64_val else "<p>Sin imagen</p>"
+
     html_body = f"""<!DOCTYPE html>
 <html>
 <head>
 <style>
-  body {{margin:0;padding:0;background:transparent;font-family:Inter,sans-serif;}}
-  .wrap {{display:flex;gap:16px;align-items:flex-start;background:#071428;border:1px solid rgba(200,16,46,.3);border-radius:14px;padding:16px;}}
-  .svg-box {{flex:0 0 260px;text-align:center;}}
-  .svg-box .label {{font-size:10px;color:#c8102e;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;}}
-  .ley-box {{flex:1;}}
-  .ley-title {{font-size:10px;color:#60a5fa;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;}}
+  * {{margin:0;padding:0;box-sizing:border-box;}}
+  body {{background:#071428;font-family:Inter,sans-serif;padding:12px;}}
+  @keyframes pulse {{
+    from {{box-shadow:0 0 6px currentColor,0 0 12px rgba(200,16,46,0.4);}}
+    to   {{box-shadow:0 0 12px currentColor,0 0 24px rgba(200,16,46,0.7);}}
+  }}
+  .wrap {{display:flex;gap:20px;align-items:flex-start;}}
+  .img-wrap {{position:relative;flex:0 0 380px;}}
+  .ley {{flex:1;}}
+  .ley-title {{font-size:10px;color:#60a5fa;font-weight:700;letter-spacing:2px;
+               text-transform:uppercase;margin-bottom:10px;}}
   table {{width:100%;border-collapse:collapse;}}
   tr {{border-bottom:1px solid rgba(255,255,255,0.06);}}
-  tr:last-child {{border-bottom:none;}}
+  .sub-title {{font-size:10px;color:#c8102e;font-weight:700;letter-spacing:2px;
+               text-transform:uppercase;margin-bottom:6px;text-align:center;}}
+  .legend-dot {{display:inline-block;width:10px;height:10px;border-radius:50%;
+                margin-right:6px;vertical-align:middle;}}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <div class="svg-box">
-    <div class="label">Mapa corporal</div>
-    {svg}
+  <div class="img-wrap">
+    <div class="sub-title">Mapa corporal</div>
+    <div style="position:relative;width:100%;">
+      {img_tag}
+      {puntos_html}
+    </div>
+    <div style="display:flex;justify-content:space-around;margin-top:8px;">
+      <span style="font-size:9px;color:#64748b;">◀ FRONTAL</span>
+      <span style="font-size:9px;color:#64748b;">POSTERIOR ▶</span>
+    </div>
   </div>
-  <div class="ley-box">
+  <div class="ley">
     <div class="ley-title">Regiones afectadas</div>
     <table>
-      {'<tr><td colspan="2" style="color:#475569;font-size:12px;padding:8px;">Sin lesiones registradas</td></tr>' if not leyenda_rows else leyenda_rows}
+      {'<tr><td colspan="2" style="padding:8px;color:#475569;font-size:12px;">Sin lesiones registradas</td></tr>' if not leyenda_rows else leyenda_rows}
     </table>
+    <div style="margin-top:16px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.06);">
+      <div style="font-size:9px;color:#475569;margin-bottom:6px;">INTENSIDAD</div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <span class="legend-dot" style="background:rgb(220,60,40);"></span>
+        <span style="font-size:10px;color:#94a3b8;">1 lesión</span>
+        <span class="legend-dot" style="background:rgb(255,20,10);width:14px;height:14px;"></span>
+        <span style="font-size:10px;color:#94a3b8;">Múltiples</span>
+      </div>
+    </div>
   </div>
 </div>
 </body>
 </html>"""
 
-    components.html(html_body, height=620, scrolling=False)
+    col_fig, _ = st.columns([3, 1])
+    with col_fig:
+        components.html(html_body, height=440, scrolling=False)
 
 
 def grafico_con_scroll(fig, height=380, max_items=15):
