@@ -171,6 +171,65 @@ def plotly_dark(fig,h=300):
     fig.update_yaxes(gridcolor="rgba(255,255,255,0.06)",color="#64748b")
     return fig
 
+
+def html_table(df, highlight_cols=None, num_format=None):
+    """Tabla dark con headers coloreados, valores centrados, escala de color en columnas numéricas."""
+    if df.empty:
+        st.info("Sin datos."); return
+    highlight_cols = highlight_cols or []
+    num_format = num_format or {}
+    
+    # Calcular rangos para escala de color por columna
+    col_ranges = {}
+    for col in highlight_cols:
+        if col in df.columns:
+            vals = pd.to_numeric(df[col].astype(str).str.replace(",","."), errors="coerce").dropna()
+            if len(vals) > 1:
+                col_ranges[col] = (vals.min(), vals.max())
+
+    def cell_color(col, val):
+        if col not in col_ranges: return ""
+        try:
+            v = float(str(val).replace(",","."))
+            mn, mx = col_ranges[col]
+            if mx == mn: return "background:#1a3a6e;color:#fff"
+            ratio = (v - mn) / (mx - mn)
+            # Verde alto → Rojo bajo
+            r = int(220 * (1 - ratio) + 20 * ratio)
+            g = int(80 * (1 - ratio) + 180 * ratio)
+            b = int(60 * (1 - ratio) + 60 * ratio)
+            luminance = 0.299*r + 0.587*g + 0.114*b
+            txt = "#fff" if luminance < 140 else "#000"
+            return f"background:rgb({r},{g},{b});color:{txt};font-weight:700"
+        except: return ""
+
+    rows_html = ""
+    for _, row in df.iterrows():
+        cells = ""
+        for col in df.columns:
+            val = row[col]
+            fmt = num_format.get(col, "")
+            try:
+                fval = float(str(val).replace(",","."))
+                display = f"{fval:{fmt}}" if fmt else (f"{fval:.1f}" if fval != int(fval) else f"{int(fval)}")
+            except:
+                display = str(val) if str(val) not in ["nan","None","<NA>"] else "—"
+            style = cell_color(col, val)
+            cells += f'<td style="text-align:center;padding:9px 12px;border-bottom:1px solid rgba(255,255,255,0.05);{style}">{display}</td>'
+        rows_html += f"<tr>{cells}</tr>"
+
+    headers = ""
+    for col in df.columns:
+        headers += f'<th style="text-align:center;padding:10px 12px;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#60a5fa;background:rgba(26,90,180,0.25);border-bottom:2px solid rgba(26,90,180,0.4);">{col}</th>'
+
+    st.markdown(f'''
+    <div style="background:#071428;border:1px solid rgba(26,90,180,0.3);border-radius:14px;overflow:hidden;margin-top:8px;">
+        <table style="width:100%;border-collapse:collapse;">
+            <thead><tr>{headers}</tr></thead>
+            <tbody>{rows_html}</tbody>
+        </table>
+    </div>''', unsafe_allow_html=True)
+
 def filtro_anio_widget(df,key):
     if "AÑO" not in df.columns: return df,"Todos"
     anios=sorted([int(a) for a in df["AÑO"].dropna().unique() if int(a)>1900],reverse=True)
@@ -178,18 +237,6 @@ def filtro_anio_widget(df,key):
     sel=st.selectbox("📅 Año",opts,key=f"anio_{key}")
     return (df[df["AÑO"]==int(sel)],sel) if sel!="Todos" else (df,"Todos")
 
-def styled_df(df):
-    """Muestra dataframe con estilo oscuro personalizado."""
-    st.dataframe(df, use_container_width=True, hide_index=True,
-        column_config={c: st.column_config.Column(width="medium") for c in df.columns})
-
-def color_scale_df(df, num_cols):
-    """Aplica escala de colores a columnas numéricas."""
-    styled = df.style
-    for col in num_cols:
-        if col in df.columns:
-            styled = styled.background_gradient(subset=[col], cmap="RdYlGn", vmin=df[col].quantile(0.1), vmax=df[col].quantile(0.9))
-    return styled.format({c: "{:.2f}" for c in num_cols if c in df.columns})
 
 # ══════════════════════════════════════════════════════════════
 # KPI CARD con máx/min/prom contextual
@@ -379,11 +426,7 @@ def pagina_historial():
         cols_show=[jcol,"_posiciones"]+[c for c in [perfil_col,nac_col,edad_col,nacio_col] if c and c in dff.columns]
         tbl=dff[cols_show].rename(columns={"_posiciones":"Posiciones"}).reset_index(drop=True)
         # Estilo de tabla
-        st.markdown('<div class="styled-table-wrap">',unsafe_allow_html=True)
-        st.dataframe(tbl, use_container_width=True, hide_index=True,
-            column_config={jcol: st.column_config.Column("Jugador", width="large"),
-                          "Posiciones": st.column_config.Column(width="large")})
-        st.markdown('</div>',unsafe_allow_html=True)
+        html_table(tbl)
     else:
         cols_grid=st.columns(3)
         for i,(_,row) in enumerate(dff.iterrows()):
@@ -450,14 +493,10 @@ def pagina_estadisticas_medicas():
             grp_cols={"DAY_OFF_DXT":("_dxt","sum"),"N° INC":(jcol,"count")}
             if "AÑO" in dff.columns: grp_cols["AÑOS"]=("AÑO","nunique")
             tabla=dff.groupby(jcol).agg(**grp_cols).reset_index().sort_values("DAY_OFF_DXT",ascending=False)
-            # Escala de color en DAY_OFF_DXT
-            st.dataframe(
-                tabla.style.background_gradient(subset=["DAY_OFF_DXT"],cmap="Reds")
-                     .format({"DAY_OFF_DXT":"{:.0f}","N° INC":"{:.0f}"}),
-                use_container_width=True, hide_index=True, height=380)
+            html_table(tabla, highlight_cols=["DAY_OFF_DXT","N° INC"])
         else:
             tbl=dff[jcol].value_counts().reset_index(); tbl.columns=[jcol,"N°"]
-            st.dataframe(tbl,use_container_width=True,hide_index=True,height=380)
+            html_table(tbl, highlight_cols=["N°"])
 
     with col_mid:
         if dxt_col and "AÑO" in les_df.columns:
@@ -475,18 +514,21 @@ def pagina_estadisticas_medicas():
         if lesion_tipo_col and dxt_col:
             st.markdown('<div class="subsec">Días perdidos x tipo lesión</div>',unsafe_allow_html=True)
             les_df["_dxt"]=to_num_col(les_df[dxt_col])
-            # Agrupar tipos con menos del 3% en "Otros"
-            por_tipo=les_df.groupby(lesion_tipo_col)["_dxt"].sum().reset_index()
+            por_tipo=les_df.groupby(lesion_tipo_col)["_dxt"].sum().reset_index().sort_values("_dxt",ascending=False)
             total=por_tipo["_dxt"].sum()
             por_tipo["pct"]=por_tipo["_dxt"]/total*100
-            por_tipo_filt=por_tipo[por_tipo["pct"]>=3].copy()
-            otros=por_tipo[por_tipo["pct"]<3]["_dxt"].sum()
-            if otros>0:
-                otros_row=pd.DataFrame([{lesion_tipo_col:"Otros","_dxt":otros,"pct":otros/total*100}])
-                por_tipo_filt=pd.concat([por_tipo_filt,otros_row],ignore_index=True)
-            fig2=px.pie(por_tipo_filt,values="_dxt",names=lesion_tipo_col,hole=0.5,
-                       template="plotly_dark",color_discrete_sequence=px.colors.qualitative.Bold)
-            fig2.update_traces(textposition="inside",textinfo="percent+label",textfont_size=11)
+            # Top 5 + Otros
+            top5=por_tipo.head(5).copy()
+            otros_sum=por_tipo.iloc[5:]["_dxt"].sum() if len(por_tipo)>5 else 0
+            if otros_sum>0:
+                top5=pd.concat([top5,pd.DataFrame([{lesion_tipo_col:"Otros","_dxt":otros_sum,"pct":otros_sum/total*100}])],ignore_index=True)
+            # Abreviar nombres largos
+            top5[lesion_tipo_col]=top5[lesion_tipo_col].astype(str).str[:28]
+            fig2=px.pie(top5,values="_dxt",names=lesion_tipo_col,hole=0.55,
+                       template="plotly_dark",color_discrete_sequence=["#4299e1","#805ad5","#ed8936","#48bb78","#f56565","#718096"])
+            fig2.update_traces(textposition="outside",textinfo="percent",
+                              pull=[0.03]*len(top5),textfont_size=11)
+            fig2.update_layout(legend=dict(orientation="v",x=1.02,y=0.5,font_size=10))
             plotly_dark(fig2,240)
             st.plotly_chart(fig2,use_container_width=True)
 
@@ -494,12 +536,28 @@ def pagina_estadisticas_medicas():
         if est_col and dxt_col:
             st.markdown('<div class="subsec">Días perdidos x clasificación</div>',unsafe_allow_html=True)
             les_df["_dxt"]=to_num_col(les_df[dxt_col])
-            por_est=les_df.groupby(est_col)["_dxt"].sum().reset_index()
-            COLORS={"MUSCULAR":"#4299e1","ARTICULAR":"#805ad5","OSEA":"#ed8936","TENDINOSO":"#e53e3e","TENDINOSA":"#e53e3e","NA":"#718096"}
+            por_est=les_df.groupby(est_col)["_dxt"].sum().reset_index().sort_values("_dxt",ascending=False)
+            total_est=por_est["_dxt"].sum()
+            por_est["pct"]=(por_est["_dxt"]/total_est*100).round(2)
+            por_est["label"]=por_est[est_col].astype(str)+" ("+por_est["pct"].astype(str)+"%)"
+            COLORS={"MUSCULAR":"#4299e1","ARTICULAR":"#805ad5","OSEA":"#ed8936","TENDINOSO":"#e53e3e","TENDINOSA":"#f6ad55","NA":"#718096"}
             colors=[COLORS.get(str(v).upper().strip(),"#64748b") for v in por_est[est_col]]
-            fig3=px.pie(por_est,values="_dxt",names=est_col,hole=0.5,template="plotly_dark",color_discrete_sequence=colors)
-            fig3.update_traces(textposition="inside",textinfo="percent+label",textfont_size=11)
-            plotly_dark(fig3,200)
+            fig3=go.Figure(go.Pie(
+                labels=por_est[est_col].astype(str),
+                values=por_est["_dxt"],
+                hole=0.55,
+                marker_colors=colors,
+                texttemplate="%{value:.0f}<br>(%{percent:.1%})",
+                textposition="outside",
+                hovertemplate="<b>%{label}</b><br>Días: %{value:.0f}<br>%{percent:.1%}<extra></extra>"
+            ))
+            fig3.update_layout(
+                title=dict(text="DÍAS PERDIDOS x CLASIFICACIÓN LESIÓN",font_size=12,font_color="#94a3b8",x=0.5),
+                legend=dict(orientation="v",x=1.02,y=0.5,font_size=11,
+                           itemsizing="constant",bgcolor="rgba(0,0,0,0)"),
+                template="plotly_dark"
+            )
+            plotly_dark(fig3,220)
             st.plotly_chart(fig3,use_container_width=True)
 
         est_me_col=next((c for c in les_df.columns if any(x in c.lower() for x in ["est_m","estructura","musculo","isquio","cuad","adu"])),est_col)
@@ -525,15 +583,11 @@ def pagina_estadisticas_medicas():
 
     st.markdown("---")
     st.markdown('<div class="subsec">Registros completos</div>',unsafe_allow_html=True)
-    if dxt_col and dxt_col in dff.columns:
-        dff["_dxt_num"]=to_num_col(dff[dxt_col])
-        num_cols_tbl=["_dxt_num"]
-        st.dataframe(dff.drop(columns=["_dxt_num"] if "_dxt" in dff.columns else []).style
-            .background_gradient(subset=[dxt_col] if dxt_col in dff.columns else [],cmap="Reds")
-            .format({dxt_col:"{:.0f}"} if dxt_col in dff.columns else {}),
-            use_container_width=True,hide_index=True)
-    else:
-        st.dataframe(dff,use_container_width=True,hide_index=True)
+    show_dff = dff[[c for c in dff.columns if not c.startswith("_")]].copy()
+    hl_cols = [dxt_col] if dxt_col and dxt_col in show_dff.columns else []
+    if dxt_col and dxt_col in show_dff.columns:
+        show_dff[dxt_col] = to_num_col(show_dff[dxt_col])
+    html_table(show_dff, highlight_cols=hl_cols)
 
 # ══════════════════════════════════════════════════════════════
 # EVALUACIONES FÍSICAS
@@ -623,12 +677,7 @@ def pagina_evaluaciones():
             tbl=dff if jsel=="Todos" else dff[dff[jcol].astype(str)==jsel]
             tbl=tbl[[c for c in show_cols if c in tbl.columns]].sort_values(ALT,ascending=False) if ALT in tbl.columns else tbl
             num_cols_tbl=[c for c in [ALT,ECC,RSI,CPF] if c in tbl.columns]
-            if num_cols_tbl:
-                try:
-                    styled=tbl.reset_index(drop=True).style.background_gradient(subset=num_cols_tbl,cmap="RdYlGn").format({c:"{:.2f}" for c in num_cols_tbl})
-                    st.dataframe(styled,use_container_width=True,hide_index=True)
-                except: st.dataframe(tbl,use_container_width=True,hide_index=True)
-            else: st.dataframe(tbl,use_container_width=True,hide_index=True)
+            html_table(tbl.reset_index(drop=True), highlight_cols=num_cols_tbl)
 
             # Gráfico comparativo barras por jugador
             if ALT in dff.columns and len(dff[jcol].unique())>1:
@@ -731,10 +780,7 @@ def pagina_evaluaciones():
             if fecha_col: show=[fecha_col]+show
             tbl=tbl[[c for c in show if c in tbl.columns]].reset_index(drop=True)
             num_c=[c for c in [L_COL,R_COL,ASYM_COL] if c in tbl.columns]
-            try:
-                styled=tbl.style.background_gradient(subset=[ASYM_COL] if ASYM_COL in tbl.columns else [],cmap="RdYlGn_r").format({c:"{:.2f}" for c in num_c})
-                st.dataframe(styled,use_container_width=True,hide_index=True)
-            except: st.dataframe(tbl,use_container_width=True,hide_index=True)
+            html_table(tbl, highlight_cols=num_c)
 
     # ──────────────────────────────────────────────────────────
     # CURL NÓRDICO
@@ -854,14 +900,7 @@ def pagina_evaluaciones():
             if fecha_col: show=[fecha_col]+show
             tbl=tbl[[c for c in show if c in tbl.columns]].reset_index(drop=True)
             num_c=[c for c in [L_N,R_N,ASYM_N,"MasaAlcanzada%"] if c in tbl.columns]
-            try:
-                fmt={L_N:"{:.0f}",R_N:"{:.0f}",ASYM_N:"{:.1f}","MasaAlcanzada%":"{:.2f}"}
-                styled=tbl.style.background_gradient(subset=[ASYM_N] if ASYM_N in tbl.columns else [],cmap="RdYlGn_r")
-                if "MasaAlcanzada%" in tbl.columns:
-                    styled=styled.background_gradient(subset=["MasaAlcanzada%"],cmap="RdYlGn")
-                styled=styled.format({k:v for k,v in fmt.items() if k in tbl.columns})
-                st.dataframe(styled,use_container_width=True,hide_index=True)
-            except: st.dataframe(tbl,use_container_width=True,hide_index=True)
+            html_table(tbl, highlight_cols=num_c)
 
     # ──────────────────────────────────────────────────────────
     # VBT
@@ -885,13 +924,7 @@ def pagina_evaluaciones():
                 if jsel!="Todos": dff=dff[dff[jcol].astype(str)==jsel]
             st.markdown('</div>',unsafe_allow_html=True)
             num_cols=[c for c in dff.columns if to_num_col(dff[c]).notna().sum()>len(dff)*0.3 and c not in ["AÑO","_fecha"]]
-            if num_cols:
-                try:
-                    tbl=dff.reset_index(drop=True)
-                    styled=tbl.style.background_gradient(subset=num_cols[:4] if len(num_cols)>4 else num_cols,cmap="RdYlGn").format({c:"{:.2f}" for c in num_cols})
-                    st.dataframe(styled,use_container_width=True,hide_index=True)
-                except: st.dataframe(dff,use_container_width=True,hide_index=True)
-            else: st.dataframe(dff,use_container_width=True,hide_index=True)
+            html_table(dff.reset_index(drop=True), highlight_cols=num_cols[:4] if len(num_cols)>4 else num_cols)
 
 # ══════════════════════════════════════════════════════════════
 # DEMANDAS FÍSICAS
@@ -944,13 +977,8 @@ def pagina_demandas():
                 plotly_dark(fig,320)
                 st.plotly_chart(fig,use_container_width=True)
         num_cols=[c for c in dff.columns if to_num_col(dff[c]).notna().sum()>len(dff)*0.3 and c not in ["AÑO","_fecha","_sem","_f"]]
-        if num_cols:
-            try:
-                tbl=dff.reset_index(drop=True)
-                styled=tbl.style.background_gradient(subset=num_cols[:3],cmap="RdYlGn").format({c:"{:.1f}" for c in num_cols[:3]})
-                st.dataframe(styled,use_container_width=True,hide_index=True)
-            except: st.dataframe(dff,use_container_width=True,hide_index=True)
-        else: st.dataframe(dff,use_container_width=True,hide_index=True)
+        show_gps=dff[[c for c in dff.columns if not c.startswith("_")]].reset_index(drop=True)
+        html_table(show_gps, highlight_cols=num_cols[:5])
 
     with tab2:
         jug_ind=st.selectbox("Jugador",sorted(df[jcol].dropna().astype(str).unique().tolist()),key="gps_ind")
@@ -1011,7 +1039,9 @@ def pagina_control_partidos():
         c3.metric("⏱️ Min. promedio",round(mvals.mean(),1) if not mvals.isna().all() else "—")
 
     st.markdown('<div style="background:rgba(26,90,180,0.08);border:1px solid rgba(26,90,180,0.2);border-radius:12px;padding:14px;margin:12px 0;"><div style="font-size:12px;font-weight:700;color:#93c5fd;margin-bottom:4px;">🔌 API de Fútbol Argentino — Próximamente</div><div style="font-size:12px;color:#64748b;">Integración con <b style="color:#e2e8f0;">API-Football</b> para estadísticas de Liga Profesional en tiempo real.</div></div>',unsafe_allow_html=True)
-    st.dataframe(dff,use_container_width=True,hide_index=True)
+    num_p=[c for c in dff.columns if to_num_col(dff[c]).notna().sum()>len(dff)*0.3 and c not in ["AÑO","_fecha"]]
+    show_p=dff[[c for c in dff.columns if not c.startswith("_")]].reset_index(drop=True)
+    html_table(show_p, highlight_cols=num_p)
 
 # ══════════════════════════════════════════════════════════════
 # RESUMEN INDIVIDUAL
