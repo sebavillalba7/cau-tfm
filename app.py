@@ -74,7 +74,7 @@ input:focus{border-color:#c8102e!important;color:#ffffff!important;}
 # ══════════════════════════════════════════════════════════════
 # ÁREAS Y USUARIOS
 # ══════════════════════════════════════════════════════════════
-AREAS={"Médica":{"icon":"🏥","secciones":["home","historial","estadisticas_medicas","evaluaciones","resumen_individual"]},"Rendimiento":{"icon":"⚡","secciones":["home","historial","evaluaciones","demandas_fisicas","control_partidos","resumen_individual"]},"Secretaría Técnica":{"icon":"📋","secciones":["home","historial","estadisticas_medicas","evaluaciones","demandas_fisicas","control_partidos","resumen_individual"]},"Administración":{"icon":"🔧","secciones":["home","historial","estadisticas_medicas","evaluaciones","demandas_fisicas","control_partidos","resumen_individual","admin"]},"Scout":{"icon":"🔍","secciones":["home","historial","control_partidos"]}}
+AREAS={"Médica":{"icon":"🏥","secciones":["home","historial","estadisticas_medicas","evaluaciones","nutricion","resumen_individual"]},"Rendimiento":{"icon":"⚡","secciones":["home","historial","evaluaciones","demandas_fisicas","control_partidos","nutricion","resumen_individual"]},"Secretaría Técnica":{"icon":"📋","secciones":["home","historial","estadisticas_medicas","evaluaciones","demandas_fisicas","control_partidos","nutricion","resumen_individual"]},"Administración":{"icon":"🔧","secciones":["home","historial","estadisticas_medicas","evaluaciones","demandas_fisicas","control_partidos","nutricion","resumen_individual","admin"]},"Scout":{"icon":"🔍","secciones":["home","historial","control_partidos"]}}
 def _hash(p): return hashlib.sha256(p.encode()).hexdigest()
 USUARIOS_BASE={"dr.garcia":{"nombre":"Dr. García","area":"Médica","rol":"Médico","email":"dr.garcia@cauunion.com","pwd":_hash("medica123"),"activo":True},"dr.lopez":{"nombre":"Dr. López","area":"Médica","rol":"Médico","email":"dr.lopez@cauunion.com","pwd":_hash("medica123"),"activo":True},"dr.martinez":{"nombre":"Dr. Martínez","area":"Médica","rol":"Médico","email":"dr.martinez@cauunion.com","pwd":_hash("medica123"),"activo":True},"kine.perez":{"nombre":"Lic. Pérez","area":"Médica","rol":"Kinesiólogo","email":"kine.perez@cauunion.com","pwd":_hash("kine123"),"activo":True},"kine.gomez":{"nombre":"Lic. Gómez","area":"Médica","rol":"Kinesiólogo","email":"kine.gomez@cauunion.com","pwd":_hash("kine123"),"activo":True},"kine.diaz":{"nombre":"Lic. Díaz","area":"Médica","rol":"Kinesiólogo","email":"kine.diaz@cauunion.com","pwd":_hash("kine123"),"activo":True},"kine.silva":{"nombre":"Lic. Silva","area":"Médica","rol":"Kinesiólogo","email":"kine.silva@cauunion.com","pwd":_hash("kine123"),"activo":True},"kine.torres":{"nombre":"Lic. Torres","area":"Médica","rol":"Kinesiólogo","email":"kine.torres@cauunion.com","pwd":_hash("kine123"),"activo":True},"pf.rodriguez":{"nombre":"Prof. Rodríguez","area":"Rendimiento","rol":"PF","email":"pf.rodriguez@cauunion.com","pwd":_hash("rend123"),"activo":True},"pf.fernandez":{"nombre":"Prof. Fernández","area":"Rendimiento","rol":"PF","email":"pf.fernandez@cauunion.com","pwd":_hash("rend123"),"activo":True},"pf.sanchez":{"nombre":"Prof. Sánchez","area":"Rendimiento","rol":"PF","email":"pf.sanchez@cauunion.com","pwd":_hash("rend123"),"activo":True},"nutri.ruiz":{"nombre":"Lic. Ruiz","area":"Rendimiento","rol":"Nutricionista","email":"nutri.ruiz@cauunion.com","pwd":_hash("rend123"),"activo":True},"nutri.mora":{"nombre":"Lic. Mora","area":"Rendimiento","rol":"Nutricionista","email":"nutri.mora@cauunion.com","pwd":_hash("rend123"),"activo":True},"nutri.vega":{"nombre":"Lic. Vega","area":"Rendimiento","rol":"Nutricionista","email":"nutri.vega@cauunion.com","pwd":_hash("rend123"),"activo":True},"ct.ramirez":{"nombre":"Prof. Ramírez","area":"Rendimiento","rol":"Cuerpo Técnico","email":"ct.ramirez@cauunion.com","pwd":_hash("rend123"),"activo":True},"ct.jimenez":{"nombre":"Prof. Jiménez","area":"Rendimiento","rol":"Cuerpo Técnico","email":"ct.jimenez@cauunion.com","pwd":_hash("rend123"),"activo":True},"ct.herrera":{"nombre":"Prof. Herrera","area":"Rendimiento","rol":"Cuerpo Técnico","email":"ct.herrera@cauunion.com","pwd":_hash("rend123"),"activo":True},"st.castro":{"nombre":"Lic. Castro","area":"Secretaría Técnica","rol":"Sec. Técnico","email":"st.castro@cauunion.com","pwd":_hash("sec123"),"activo":True},"st.vargas":{"nombre":"Lic. Vargas","area":"Secretaría Técnica","rol":"Sec. Técnico","email":"st.vargas@cauunion.com","pwd":_hash("sec123"),"activo":True},"st.medina":{"nombre":"Lic. Medina","area":"Secretaría Técnica","rol":"Sec. Técnico","email":"st.medina@cauunion.com","pwd":_hash("sec123"),"activo":True},"st.guerrero":{"nombre":"Lic. Guerrero","area":"Secretaría Técnica","rol":"Sec. Técnico","email":"st.guerrero@cauunion.com","pwd":_hash("sec123"),"activo":True},"admin":{"nombre":"Administrador","area":"Administración","rol":"Admin","email":"futbolprofesionalcau@gmail.com","pwd":_hash("admin123"),"activo":True},"scout.blanco":{"nombre":"Lic. Blanco","area":"Scout","rol":"Scout","email":"scout.blanco@cauunion.com","pwd":_hash("scout123"),"activo":True},"scout.acosta":{"nombre":"Lic. Acosta","area":"Scout","rol":"Scout","email":"scout.acosta@cauunion.com","pwd":_hash("scout123"),"activo":True},"scout.rios":{"nombre":"Lic. Ríos","area":"Scout","rol":"Scout","email":"scout.rios@cauunion.com","pwd":_hash("scout123"),"activo":True}}
 
@@ -98,7 +98,7 @@ def usuarios_por_area(area): return [k for k,d in todos_los_usuarios().items() i
 # ══════════════════════════════════════════════════════════════
 # SHEETS
 # ══════════════════════════════════════════════════════════════
-SHEETS={"historial":"https://docs.google.com/spreadsheets/d/1Ppy3Mkz3ojqlcGAcxhNlqnGy5o2GmBHmdL9IZdRh9b0/edit?gid=0","lesiones":"https://docs.google.com/spreadsheets/d/1irSkXB8V_D_jZurEGUA9JMkLpE3e0_qad16_orjHDi8/edit?gid=0","cmj":"https://docs.google.com/spreadsheets/d/1VQLX1R1M0IW8j_TPXbVE8y5qaOA8-2qpj8cL-eGA1VY/edit?gid=1188054203","cmj1pp":"https://docs.google.com/spreadsheets/d/16ugXQ5hEnMa9bh_Ma1IDDaPq6gNq4QVPTRwQyVnz3oc/edit?gid=305963248","nordico":"https://docs.google.com/spreadsheets/d/1fhFajl9ckPYikfIKdBHTORcqQj0802JoNQ8-B3wEJWU/edit?gid=1994839095","vbt":"https://docs.google.com/spreadsheets/d/1NjVz_ivHKRrtai18ogjMQuQA6EYh3Q-WLDiNOErYO-Q/edit?gid=0","gps":"https://docs.google.com/spreadsheets/d/1W3hUX8zTPYXzDUSmdW7Nj2fXbEKlp1E2Us7kwNBhR6c/edit?gid=0","partidos":"https://docs.google.com/spreadsheets/d/17EiRiX-Tjlor0SfZvz-Wzfohz07calbA_26DKd4XL5g/edit?gid=2140450866"}
+SHEETS={"historial":"https://docs.google.com/spreadsheets/d/1Ppy3Mkz3ojqlcGAcxhNlqnGy5o2GmBHmdL9IZdRh9b0/edit?gid=0","lesiones":"https://docs.google.com/spreadsheets/d/1irSkXB8V_D_jZurEGUA9JMkLpE3e0_qad16_orjHDi8/edit?gid=0","cmj":"https://docs.google.com/spreadsheets/d/1VQLX1R1M0IW8j_TPXbVE8y5qaOA8-2qpj8cL-eGA1VY/edit?gid=1188054203","cmj1pp":"https://docs.google.com/spreadsheets/d/16ugXQ5hEnMa9bh_Ma1IDDaPq6gNq4QVPTRwQyVnz3oc/edit?gid=305963248","nordico":"https://docs.google.com/spreadsheets/d/1fhFajl9ckPYikfIKdBHTORcqQj0802JoNQ8-B3wEJWU/edit?gid=1994839095","vbt":"https://docs.google.com/spreadsheets/d/1NjVz_ivHKRrtai18ogjMQuQA6EYh3Q-WLDiNOErYO-Q/edit?gid=0","gps":"https://docs.google.com/spreadsheets/d/1W3hUX8zTPYXzDUSmdW7Nj2fXbEKlp1E2Us7kwNBhR6c/edit?gid=0","partidos":"https://docs.google.com/spreadsheets/d/17EiRiX-Tjlor0SfZvz-Wzfohz07calbA_26DKd4XL5g/edit?gid=2140450866","nutricion":"https://docs.google.com/spreadsheets/d/1tUsVAxfdeNbwGgAhJ865E3Fgf4x1TENcbTgt1ROAG2s/edit?gid=738328335"}
 
 def gsheet_csv(url):
     sid=re.search(r"/d/([^/]+)",url).group(1)
@@ -344,7 +344,7 @@ def render_sidebar():
         esc=f'<img src="data:image/png;base64,{b64}" style="width:56px;height:56px;object-fit:contain;filter:drop-shadow(0 0 10px rgba(200,16,46,.5));">' if b64 else "⚽"
         st.markdown(f'<div style="text-align:center;padding:14px 0 12px;border-bottom:1px solid rgba(200,16,46,.25);margin-bottom:14px;">{esc}<div style="font-family:\'Bebas Neue\',sans-serif;font-size:16px;letter-spacing:3px;margin-top:8px;color:#fff;">CAU · UNIÓN</div><div style="font-size:12px;color:#f87171;margin-top:3px;">{AREAS[u["area"]]["icon"]} {u["nombre"]}</div><div style="font-size:10px;color:#475569;margin-top:2px;">{u["rol"]} · {u["area"]}</div></div>',unsafe_allow_html=True)
         st.markdown('<p style="font-size:10px;letter-spacing:3px;color:#475569;text-transform:uppercase;margin:0 0 8px;">MENÚ</p>',unsafe_allow_html=True)
-        for key,icon,label in [("home","🏠","Inicio"),("historial","👤","Historial Jugadores"),("estadisticas_medicas","🏥","Estadísticas Médicas"),("evaluaciones","⚡","Evaluaciones Físicas"),("demandas_fisicas","📡","Demandas Físicas"),("control_partidos","⚽","Control de Partidos"),("resumen_individual","📄","Resumen Individual")]:
+        for key,icon,label in [("home","🏠","Inicio"),("historial","👤","Historial Jugadores"),("estadisticas_medicas","🏥","Estadísticas Médicas"),("evaluaciones","⚡","Evaluaciones Físicas"),("demandas_fisicas","📡","Demandas Físicas"),("control_partidos","⚽","Control de Partidos"),("nutricion","🥗","Control Nutricional"),("resumen_individual","📄","Resumen Individual")]:
             if tiene_acceso(u,key):
                 if st.button(f"{icon}  {label}",key=f"nav_{key}",use_container_width=True):
                     st.session_state.pagina=key;st.rerun()
@@ -599,14 +599,14 @@ def pagina_estadisticas_medicas():
         with b1:
             st.markdown('<div class="subsec">N° lesiones x est. M-E</div>',unsafe_allow_html=True)
             vc=les_df[est_me_col].value_counts().reset_index(); vc.columns=["Estructura","N°"]
-            vc=vc.sort_values("N°",ascending=True)
+            vc=vc.sort_values("N°",ascending=False)
             n_filas=len(vc)
-            alto_est=max(280, n_filas*36)
+            alto_est=max(300, n_filas*38)
             fig4=px.bar(vc,x="N°",y="Estructura",orientation="h",text="N°",
                        color_discrete_sequence=["#4299e1"],template="plotly_dark")
             fig4.update_traces(textposition="outside",textfont_color="#fff",
                               marker_color="#4299e1",texttemplate="%{text:.0f}")
-            fig4.update_layout(yaxis=dict(autorange="reversed"))
+            fig4.update_layout(yaxis=dict(categoryorder="total ascending"))
             plotly_dark(fig4, alto_est)
             st.plotly_chart(fig4,use_container_width=True)
 
@@ -614,14 +614,14 @@ def pagina_estadisticas_medicas():
         with b2:
             st.markdown('<div class="subsec">N° lesiones x región</div>',unsafe_allow_html=True)
             vc_r=les_df[region_col].value_counts().reset_index(); vc_r.columns=["Región","N°"]
-            vc_r=vc_r.sort_values("N°",ascending=True)
+            vc_r=vc_r.sort_values("N°",ascending=False)
             n_filas_r=len(vc_r)
-            alto_reg=max(280, n_filas_r*36)
+            alto_reg=max(300, n_filas_r*38)
             fig5=px.bar(vc_r,x="N°",y="Región",orientation="h",text="N°",
                        color_discrete_sequence=["#48bb78"],template="plotly_dark")
             fig5.update_traces(textposition="outside",textfont_color="#fff",
                               marker_color="#48bb78",texttemplate="%{text:.0f}")
-            fig5.update_layout(yaxis=dict(autorange="reversed"))
+            fig5.update_layout(yaxis=dict(categoryorder="total ascending"))
             plotly_dark(fig5, alto_reg)
             st.plotly_chart(fig5,use_container_width=True)
 
@@ -1181,13 +1181,191 @@ def pagina_admin():
                 if st.button("🗑️ Eliminar",key="btn_del"): del st.session_state.usuarios_extra[sel];st.rerun()
             else: st.caption("Usuarios base no eliminables")
 
+
+# ══════════════════════════════════════════════════════════════
+# CONTROL NUTRICIONAL
+# ══════════════════════════════════════════════════════════════
+def pagina_nutricion():
+    st.markdown('<div class="sec-title">🥗 Control Nutricional — Control Semanal</div>',unsafe_allow_html=True)
+    pdf_btn()
+    df=cargar_sheet("nutricion")
+    if df.empty: no_data("Control Nutricional"); return
+
+    jcol=jug_col_find(df)
+    pos_col=pos_col_find(df)
+    fecha_col=next((c for c in df.columns if "fecha" in c.lower() and "_" not in c),None)
+    micro_col=next((c for c in df.columns if "micro" in c.lower() or "semana" in c.lower() or "week" in c.lower()),None)
+    peso_col=next((c for c in df.columns if "peso" in c.lower() or "weight" in c.lower() or "bw" in c.lower()),None)
+    pliegue_col=next((c for c in df.columns if "pliegue" in c.lower() or "skinfold" in c.lower() or "grasa" in c.lower() or "fat" in c.lower()),None)
+
+    st.markdown(f'<div style="font-size:12px;color:#64748b;margin-bottom:8px;">Columnas disponibles: {", ".join(df.columns[:10].tolist())}</div>',unsafe_allow_html=True)
+
+    # ── Filtros ──────────────────────────────────────────────
+    st.markdown('<div class="filter-bar">',unsafe_allow_html=True)
+    fc1,fc2,fc3,fc4,fc5=st.columns(5)
+    with fc1: dff,_=filtro_anio_widget(df,"nutri")
+    with fc2:
+        pos_opts=["Todas"]+(sorted(dff[pos_col].dropna().astype(str).unique().tolist()) if pos_col else [])
+        pos_sel=st.selectbox("Posición",pos_opts,key="nutri_pos")
+        if pos_sel!="Todas" and pos_col: dff=dff[dff[pos_col].astype(str)==pos_sel]
+    with fc3:
+        jugs=["Todos"]+sorted(dff[jcol].dropna().astype(str).unique().tolist())
+        jsel=st.selectbox("Jugador",jugs,key="nutri_jug")
+        if jsel!="Todos": dff=dff[dff[jcol].astype(str)==jsel]
+    with fc4:
+        if micro_col:
+            micros=["Todos"]+sorted(dff[micro_col].dropna().astype(str).unique().tolist())
+            msel=st.selectbox("Microciclo",micros,key="nutri_micro")
+            if msel!="Todos": dff=dff[dff[micro_col].astype(str)==msel]
+        else: msel="Todos"
+    with fc5:
+        if fecha_col:
+            fechas_unicas=sorted(dff[fecha_col].dropna().astype(str).unique().tolist(),reverse=True)
+            fsel=st.selectbox("Fecha",["Todas"]+fechas_unicas,key="nutri_fecha")
+            if fsel!="Todas": dff=dff[dff[fecha_col].astype(str)==fsel]
+    st.markdown('</div>',unsafe_allow_html=True)
+
+    # ── KPIs ─────────────────────────────────────────────────
+    c1,c2,c3,c4=st.columns(4)
+    c1.metric("👥 Registros",len(dff))
+    c2.metric("👤 Jugadores",dff[jcol].nunique())
+    if peso_col:
+        pvals=to_num_col(dff[peso_col]).dropna()
+        c3.metric("⚖️ Peso prom.",f"{pvals.mean():.1f} kg" if len(pvals)>0 else "—")
+    if pliegue_col:
+        plvals=to_num_col(dff[pliegue_col]).dropna()
+        c4.metric("📏 Pliegue prom.",f"{plvals.mean():.1f}" if len(plvals)>0 else "—")
+
+    # ── Tabla con scroll ─────────────────────────────────────
+    st.markdown('<div class="subsec">Registros</div>',unsafe_allow_html=True)
+    show_cols=[c for c in dff.columns if not c.startswith("_")]
+    num_cols_hl=[c for c in [peso_col,pliegue_col] if c and c in dff.columns]
+    for c in num_cols_hl:
+        dff[c]=to_num_col(dff[c])
+    html_table(dff[show_cols].reset_index(drop=True), highlight_cols=num_cols_hl, max_rows=20, height=420)
+
+    if not fecha_col or (not peso_col and not pliegue_col):
+        st.info("Se necesitan columnas de fecha, peso y/o pliegue para mostrar gráficos de evolución.")
+        return
+
+    # Preparar datos temporales
+    dff2=dff.copy()
+    dff2["_f"]=pd.to_datetime(dff2[fecha_col],dayfirst=True,errors="coerce")
+    if peso_col: dff2[peso_col]=to_num_col(dff2[peso_col])
+    if pliegue_col: dff2[pliegue_col]=to_num_col(dff2[pliegue_col])
+    dff2=dff2.dropna(subset=["_f"]).sort_values("_f")
+
+    st.markdown("---")
+
+    # ── Gráfico 1 y 2: evolución peso y pliegue ──────────────
+    g1,g2=st.columns(2)
+    with g1:
+        if peso_col and peso_col in dff2.columns:
+            st.markdown('<div class="subsec">Evolución del Peso (kg)</div>',unsafe_allow_html=True)
+            dff_p=dff2.dropna(subset=[peso_col])
+            fig1=px.line(dff_p,x="_f",y=peso_col,
+                        color=jcol if jsel=="Todos" else None,
+                        markers=True,template="plotly_dark",
+                        labels={"_f":"Fecha",peso_col:"Peso (kg)"})
+            fig1.update_traces(line_width=2,marker_size=7)
+            if jsel!="Todos":
+                fig1.update_traces(line_color="#c8102e",marker_color="#fff")
+            plotly_dark(fig1,300)
+            st.plotly_chart(fig1,use_container_width=True)
+
+    with g2:
+        if pliegue_col and pliegue_col in dff2.columns:
+            st.markdown('<div class="subsec">Evolución del Pliegue</div>',unsafe_allow_html=True)
+            dff_pl=dff2.dropna(subset=[pliegue_col])
+            fig2=px.line(dff_pl,x="_f",y=pliegue_col,
+                        color=jcol if jsel=="Todos" else None,
+                        markers=True,template="plotly_dark",
+                        labels={"_f":"Fecha",pliegue_col:"Pliegue"})
+            fig2.update_traces(line_width=2,marker_size=7)
+            if jsel!="Todos":
+                fig2.update_traces(line_color="#4299e1",marker_color="#fff")
+            plotly_dark(fig2,300)
+            st.plotly_chart(fig2,use_container_width=True)
+
+    # ── Gráfico 3: variación % por microciclo ─────────────────
+    st.markdown("---")
+    st.markdown('<div class="subsec">Variación % por microciclo (peso y pliegue)</div>',unsafe_allow_html=True)
+
+    if micro_col and micro_col in dff2.columns:
+        # Calcular variación % respecto al microciclo anterior por jugador
+        dff3=dff2.copy()
+        dff3=dff3.sort_values([jcol,micro_col])
+
+        resultados=[]
+        for jugador,grupo in dff3.groupby(jcol):
+            grupo=grupo.sort_values("_f").reset_index(drop=True)
+            for i in range(1,len(grupo)):
+                fila={"jugador":jugador,micro_col:grupo.loc[i,micro_col],"_f":grupo.loc[i,"_f"]}
+                if peso_col and peso_col in grupo.columns:
+                    p_actual=grupo.loc[i,peso_col]; p_prev=grupo.loc[i-1,peso_col]
+                    if pd.notna(p_actual) and pd.notna(p_prev) and p_prev!=0:
+                        fila["var_peso_%"]=(p_actual-p_prev)/p_prev*100
+                if pliegue_col and pliegue_col in grupo.columns:
+                    pl_actual=grupo.loc[i,pliegue_col]; pl_prev=grupo.loc[i-1,pliegue_col]
+                    if pd.notna(pl_actual) and pd.notna(pl_prev) and pl_prev!=0:
+                        fila["var_pliegue_%"]=(pl_actual-pl_prev)/pl_prev*100
+                resultados.append(fila)
+
+        if resultados:
+            df_var=pd.DataFrame(resultados)
+            fig3=go.Figure()
+            if "var_peso_%" in df_var.columns:
+                if jsel!="Todos":
+                    df_jug=df_var[df_var["jugador"]==jsel]
+                    fig3.add_trace(go.Scatter(
+                        x=df_jug[micro_col].astype(str),y=df_jug["var_peso_%"],
+                        name="Var% Peso",mode="lines+markers",
+                        line=dict(color="#c8102e",width=2),marker=dict(size=8,color="#fff")
+                    ))
+                else:
+                    agg_peso=df_var.groupby(micro_col)["var_peso_%"].mean().reset_index()
+                    fig3.add_trace(go.Scatter(
+                        x=agg_peso[micro_col].astype(str),y=agg_peso["var_peso_%"],
+                        name="Var% Peso (prom)",mode="lines+markers",
+                        line=dict(color="#c8102e",width=2),marker=dict(size=8)
+                    ))
+            if "var_pliegue_%" in df_var.columns:
+                if jsel!="Todos":
+                    df_jug=df_var[df_var["jugador"]==jsel]
+                    fig3.add_trace(go.Scatter(
+                        x=df_jug[micro_col].astype(str),y=df_jug["var_pliegue_%"],
+                        name="Var% Pliegue",mode="lines+markers",
+                        line=dict(color="#4299e1",width=2),marker=dict(size=8,color="#60a5fa")
+                    ))
+                else:
+                    agg_pl=df_var.groupby(micro_col)["var_pliegue_%"].mean().reset_index()
+                    fig3.add_trace(go.Scatter(
+                        x=agg_pl[micro_col].astype(str),y=agg_pl["var_pliegue_%"],
+                        name="Var% Pliegue (prom)",mode="lines+markers",
+                        line=dict(color="#4299e1",width=2),marker=dict(size=8)
+                    ))
+            fig3.add_hline(y=0,line_dash="dot",line_color="#64748b",line_width=1)
+            fig3.update_layout(
+                template="plotly_dark",
+                xaxis_title="Microciclo",
+                yaxis_title="Variación %",
+                legend=dict(orientation="h",x=0.5,y=1.1,xanchor="center",bgcolor="rgba(0,0,0,0)"),
+                hovermode="x unified"
+            )
+            plotly_dark(fig3,340)
+            st.plotly_chart(fig3,use_container_width=True)
+        else:
+            st.info("No hay suficientes datos para calcular variación entre microciclos.")
+    else:
+        st.info("Se necesita una columna de microciclo para el gráfico de variación %.")
+
 # ══════════════════════════════════════════════════════════════
 # ROUTER Y MAIN
 # ══════════════════════════════════════════════════════════════
 def render_pagina():
     u=st.session_state.usuario;p=st.session_state.pagina
     if not tiene_acceso(u,p) and p!="admin": st.error("🚫 No tenés acceso.");return
-    {"home":pagina_home,"historial":pagina_historial,"estadisticas_medicas":pagina_estadisticas_medicas,"evaluaciones":pagina_evaluaciones,"demandas_fisicas":pagina_demandas,"control_partidos":pagina_control_partidos,"resumen_individual":pagina_resumen,"admin":pagina_admin}.get(p,lambda:st.error("Página no encontrada"))()
+    {"home":pagina_home,"historial":pagina_historial,"estadisticas_medicas":pagina_estadisticas_medicas,"evaluaciones":pagina_evaluaciones,"demandas_fisicas":pagina_demandas,"control_partidos":pagina_control_partidos,"nutricion":pagina_nutricion,"resumen_individual":pagina_resumen,"admin":pagina_admin}.get(p,lambda:st.error("Página no encontrada"))()
 
 if not st.session_state.logged:
     pagina_login()
