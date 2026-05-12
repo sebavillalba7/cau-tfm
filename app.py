@@ -492,17 +492,22 @@ def cuerpo_humano_svg(zonas_afectadas: set, intensidad: dict = None) -> str:
     max_int = max(intensidad.values()) if intensidad else 1
 
     def color(zona):
-        if zona not in zonas_afectadas: return "rgba(255,255,255,0.08)"
+        if zona not in zonas_afectadas: return "#1a2f52"
         cnt = intensidad.get(zona, 1)
-        ratio = cnt / max_int
-        # Verde claro (1) → Rojo intenso (máximo)
-        r = int(200 + 55 * ratio)
-        g = int(100 * (1 - ratio))
-        b = int(50 * (1 - ratio))
+        ratio = min(cnt / max_int, 1.0)
+        r = int(180 + 75 * ratio)
+        g = int(60 * (1 - ratio))
+        b = int(40 * (1 - ratio))
         return f"rgb({r},{g},{b})"
 
+    def stroke(zona):
+        return "#f87171" if zona in zonas_afectadas else "rgba(255,255,255,0.15)"
+
+    def sw(zona):
+        return "2" if zona in zonas_afectadas else "1"
+
     def op(zona):
-        return "0.9" if zona in zonas_afectadas else "0.15"
+        return "1.0" if zona in zonas_afectadas else "0.6"
 
     c = color
     svg = f"""
@@ -520,7 +525,7 @@ def cuerpo_humano_svg(zonas_afectadas: set, intensidad: dict = None) -> str:
 
       <!-- ── CABEZA ── -->
       <ellipse id="cabeza" cx="160" cy="48" rx="32" ry="38"
-               fill="{c("cabeza")}" opacity="{op("cabeza")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+               fill="{c("cabeza")}" opacity="{op("cabeza")}" stroke="{stroke("cabeza")}" stroke-width="{sw("cabeza")}"/>
 
       <!-- ── CUELLO ── -->
       <rect x="148" y="84" width="24" height="22" rx="4"
@@ -532,21 +537,21 @@ def cuerpo_humano_svg(zonas_afectadas: set, intensidad: dict = None) -> str:
 
       <!-- ABDOMEN -->
       <rect id="abdomen" x="125" y="176" width="70" height="42" rx="8"
-            fill="{c("abdomen")}" opacity="{op("abdomen")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+            fill="{c("abdomen")}" opacity="{op("abdomen")}" stroke="{stroke("abdomen")}" stroke-width="{sw("abdomen")}"/>
 
       <!-- PUBIS -->
       <ellipse id="pubis" cx="160" cy="228" rx="30" ry="16"
-               fill="{c("pubis")}" opacity="{op("pubis")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+               fill="{c("pubis")}" opacity="{op("pubis")}" stroke="{stroke("pubis")}" stroke-width="{sw("pubis")}"/>
 
       <!-- LUMBAR -->
       <rect id="lumbar" x="130" y="188" width="60" height="28" rx="6"
-            fill="{c("lumbar")}" opacity="{op("lumbar")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+            fill="{c("lumbar")}" opacity="{op("lumbar")}" stroke="{stroke("lumbar")}" stroke-width="{sw("lumbar")}"/>
 
       <!-- ── HOMBROS ── -->
       <ellipse id="hombro_der" cx="92" cy="118" rx="22" ry="18"
-               fill="{c("hombro_der")}" opacity="{op("hombro_der")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+               fill="{c("hombro_der")}" opacity="{op("hombro_der")}" stroke="{stroke("hombro_der")}" stroke-width="{sw("hombro_der")}"/>
       <ellipse id="hombro_izq" cx="228" cy="118" rx="22" ry="18"
-               fill="{c("hombro_izq")}" opacity="{op("hombro_izq")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+               fill="{c("hombro_izq")}" opacity="{op("hombro_izq")}" stroke="{stroke("hombro_izq")}" stroke-width="{sw("hombro_izq")}"/>
 
       <!-- BRAZOS (decorativo) -->
       <rect x="70" y="134" width="22" height="80" rx="10" fill="rgba(255,255,255,0.08)" opacity="0.4"/>
@@ -554,79 +559,79 @@ def cuerpo_humano_svg(zonas_afectadas: set, intensidad: dict = None) -> str:
 
       <!-- ANTEBRAZOS -->
       <rect id="antebrazo_der" x="64" y="216" width="20" height="60" rx="8"
-            fill="{c("antebrazo_der")}" opacity="{op("antebrazo_der")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+            fill="{c("antebrazo_der")}" opacity="{op("antebrazo_der")}" stroke="{stroke("antebrazo_der")}" stroke-width="{sw("antebrazo_der")}"/>
       <rect id="antebrazo_izq" x="236" y="216" width="20" height="60" rx="8"
-            fill="{c("antebrazo_izq")}" opacity="{op("antebrazo_izq")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+            fill="{c("antebrazo_izq")}" opacity="{op("antebrazo_izq")}" stroke="{stroke("antebrazo_izq")}" stroke-width="{sw("antebrazo_izq")}"/>
 
       <!-- ── CADERAS ── -->
       <ellipse id="cadera_der" cx="128" cy="240" rx="26" ry="20"
-               fill="{c("cadera_der")}" opacity="{op("cadera_der")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+               fill="{c("cadera_der")}" opacity="{op("cadera_der")}" stroke="{stroke("cadera_der")}" stroke-width="{sw("cadera_der")}"/>
       <ellipse id="cadera_izq" cx="192" cy="240" rx="26" ry="20"
-               fill="{c("cadera_izq")}" opacity="{op("cadera_izq")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+               fill="{c("cadera_izq")}" opacity="{op("cadera_izq")}" stroke="{stroke("cadera_izq")}" stroke-width="{sw("cadera_izq")}"/>
 
       <!-- ── GLUTEOS ── -->
       <ellipse id="gluteo_der" cx="125" cy="252" rx="22" ry="18"
-               fill="{c("gluteo_der")}" opacity="{op("gluteo_der")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+               fill="{c("gluteo_der")}" opacity="{op("gluteo_der")}" stroke="{stroke("gluteo_der")}" stroke-width="{sw("gluteo_der")}"/>
       <ellipse id="gluteo_izq" cx="195" cy="252" rx="22" ry="18"
-               fill="{c("gluteo_izq")}" opacity="{op("gluteo_izq")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+               fill="{c("gluteo_izq")}" opacity="{op("gluteo_izq")}" stroke="{stroke("gluteo_izq")}" stroke-width="{sw("gluteo_izq")}"/>
 
       <!-- ── MUSLO ANTERIOR DER ── -->
       <rect id="muslo_ant_der" x="102" y="258" width="44" height="80" rx="14"
-            fill="{c("muslo_ant_der")}" opacity="{op("muslo_ant_der")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+            fill="{c("muslo_ant_der")}" opacity="{op("muslo_ant_der")}" stroke="{stroke("muslo_ant_der")}" stroke-width="{sw("muslo_ant_der")}"/>
 
       <!-- ── MUSLO ANTERIOR IZQ ── -->
       <rect id="muslo_ant_izq" x="174" y="258" width="44" height="80" rx="14"
-            fill="{c("muslo_ant_izq")}" opacity="{op("muslo_ant_izq")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+            fill="{c("muslo_ant_izq")}" opacity="{op("muslo_ant_izq")}" stroke="{stroke("muslo_ant_izq")}" stroke-width="{sw("muslo_ant_izq")}"/>
 
       <!-- ── MUSLO POSTERIOR DER ── -->
       <rect id="muslo_post_der" x="104" y="262" width="40" height="76" rx="14"
-            fill="{c("muslo_post_der")}" opacity="{op("muslo_post_der")}" stroke="rgba(255,255,255,0.15)" stroke-width="1"
+            fill="{c("muslo_post_der")}" opacity="{op("muslo_post_der")}" stroke="{stroke("muslo_post_der")}" stroke-width="{sw("muslo_post_der")}"
             transform="translate(0,2)"/>
 
       <!-- ── MUSLO POSTERIOR IZQ ── -->
       <rect id="muslo_post_izq" x="176" y="262" width="40" height="76" rx="14"
-            fill="{c("muslo_post_izq")}" opacity="{op("muslo_post_izq")}" stroke="rgba(255,255,255,0.15)" stroke-width="1"
+            fill="{c("muslo_post_izq")}" opacity="{op("muslo_post_izq")}" stroke="{stroke("muslo_post_izq")}" stroke-width="{sw("muslo_post_izq")}"
             transform="translate(0,2)"/>
 
       <!-- ── MUSLO INTERNO DER ── -->
       <rect id="muslo_int_der" x="120" y="268" width="28" height="68" rx="10"
-            fill="{c("muslo_int_der")}" opacity="{op("muslo_int_der")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+            fill="{c("muslo_int_der")}" opacity="{op("muslo_int_der")}" stroke="{stroke("muslo_int_der")}" stroke-width="{sw("muslo_int_der")}"/>
 
       <!-- ── MUSLO INTERNO IZQ ── -->
       <rect id="muslo_int_izq" x="172" y="268" width="28" height="68" rx="10"
-            fill="{c("muslo_int_izq")}" opacity="{op("muslo_int_izq")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+            fill="{c("muslo_int_izq")}" opacity="{op("muslo_int_izq")}" stroke="{stroke("muslo_int_izq")}" stroke-width="{sw("muslo_int_izq")}"/>
 
       <!-- ── RODILLA DER ── -->
       <ellipse id="rodilla_der" cx="124" cy="346" rx="22" ry="16"
-               fill="{c("rodilla_der")}" opacity="{op("rodilla_der")}" stroke="rgba(255,255,255,0.25)" stroke-width="1.5"/>
+               fill="{c("rodilla_der")}" opacity="{op("rodilla_der")}" stroke="{stroke("rodilla_der")}" stroke-width="{sw("rodilla_der")}"/>
 
       <!-- ── RODILLA IZQ ── -->
       <ellipse id="rodilla_izq" cx="196" cy="346" rx="22" ry="16"
-               fill="{c("rodilla_izq")}" opacity="{op("rodilla_izq")}" stroke="rgba(255,255,255,0.25)" stroke-width="1.5"/>
+               fill="{c("rodilla_izq")}" opacity="{op("rodilla_izq")}" stroke="{stroke("rodilla_izq")}" stroke-width="{sw("rodilla_izq")}"/>
 
       <!-- ── PIERNA DER ── -->
       <rect id="pierna_der" x="108" y="360" width="32" height="80" rx="12"
-            fill="{c("pierna_der")}" opacity="{op("pierna_der")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+            fill="{c("pierna_der")}" opacity="{op("pierna_der")}" stroke="{stroke("pierna_der")}" stroke-width="{sw("pierna_der")}"/>
 
       <!-- ── PIERNA IZQ ── -->
       <rect id="pierna_izq" x="180" y="360" width="32" height="80" rx="12"
-            fill="{c("pierna_izq")}" opacity="{op("pierna_izq")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+            fill="{c("pierna_izq")}" opacity="{op("pierna_izq")}" stroke="{stroke("pierna_izq")}" stroke-width="{sw("pierna_izq")}"/>
 
       <!-- ── TOBILLO DER ── -->
       <ellipse id="tobillo_der" cx="124" cy="446" rx="18" ry="10"
-               fill="{c("tobillo_der")}" opacity="{op("tobillo_der")}" stroke="rgba(255,255,255,0.25)" stroke-width="1.5"/>
+               fill="{c("tobillo_der")}" opacity="{op("tobillo_der")}" stroke="{stroke("tobillo_der")}" stroke-width="{sw("tobillo_der")}"/>
 
       <!-- ── TOBILLO IZQ ── -->
       <ellipse id="tobillo_izq" cx="196" cy="446" rx="18" ry="10"
-               fill="{c("tobillo_izq")}" opacity="{op("tobillo_izq")}" stroke="rgba(255,255,255,0.25)" stroke-width="1.5"/>
+               fill="{c("tobillo_izq")}" opacity="{op("tobillo_izq")}" stroke="{stroke("tobillo_izq")}" stroke-width="{sw("tobillo_izq")}"/>
 
       <!-- ── PIE DER ── -->
       <ellipse id="pie_der" cx="120" cy="468" rx="22" ry="12"
-               fill="{c("pie_der")}" opacity="{op("pie_der")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+               fill="{c("pie_der")}" opacity="{op("pie_der")}" stroke="{stroke("pie_der")}" stroke-width="{sw("pie_der")}"/>
 
       <!-- ── PIE IZQ ── -->
       <ellipse id="pie_izq" cx="200" cy="468" rx="22" ry="12"
-               fill="{c("pie_izq")}" opacity="{op("pie_izq")}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+               fill="{c("pie_izq")}" opacity="{op("pie_izq")}" stroke="{stroke("pie_izq")}" stroke-width="{sw("pie_izq")}"/>
 
       <!-- ── LABELS ── -->
       <text x="160" y="592" text-anchor="middle" fill="rgba(255,255,255,0.3)" 
@@ -662,18 +667,37 @@ def render_cuerpo_humano(df_jugador, region_col):
         if region not in ["NA", "OTRA", "NO-MUSC"]:
             leyenda += f'<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.05);"><span style="font-size:12px;color:#94a3b8;">{region.title()}</span><span style="font-size:12px;font-weight:700;color:#f87171;">{cnt}</span></div>'
 
-    st.markdown(f"""
-    <div style="background:rgba(8,18,38,.95);border:1px solid rgba(200,16,46,.2);border-radius:16px;padding:20px;">
-        <div style="font-size:11px;color:#c8102e;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-bottom:12px;">Mapa corporal de lesiones</div>
-        <div style="display:flex;gap:16px;align-items:flex-start;">
-            <div style="flex:0 0 auto;">{svg}</div>
-            <div style="flex:1;max-height:480px;overflow-y:auto;">
-                <div style="font-size:10px;color:#60a5fa;font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;">Regiones afectadas</div>
-                {leyenda if leyenda else '<div style="color:#475569;font-size:12px;">Sin lesiones registradas</div>'}
+    col_svg, col_ley = st.columns([1, 1])
+    with col_svg:
+        st.markdown(f"""
+        <div style="background:rgba(8,18,38,.95);border:1px solid rgba(200,16,46,.2);
+                    border-radius:16px;padding:16px;text-align:center;">
+            <div style="font-size:10px;color:#c8102e;font-weight:700;letter-spacing:2px;
+                        text-transform:uppercase;margin-bottom:10px;">Mapa corporal de lesiones</div>
+            {svg}
+        </div>
+        """, unsafe_allow_html=True)
+    with col_ley:
+        st.markdown(f"""
+        <div style="background:rgba(8,18,38,.95);border:1px solid rgba(26,90,180,.2);
+                    border-radius:16px;padding:16px;height:100%;">
+            <div style="font-size:10px;color:#60a5fa;font-weight:700;letter-spacing:2px;
+                        text-transform:uppercase;margin-bottom:10px;">Regiones afectadas</div>
+            <div style="max-height:480px;overflow-y:auto;">
+                {leyenda if leyenda else '<div style="color:#475569;font-size:12px;margin-top:20px;">Sin lesiones registradas</div>'}
             </div>
         </div>
-    </div>
-    """, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
+
+
+def grafico_con_scroll(fig, height=380, max_items=15):
+    """Envuelve un gráfico plotly en un div con scroll si tiene muchas categorías."""
+    # Calcular altura real necesaria
+    actual_height = height
+    st.markdown(f'<div style="max-height:{actual_height+40}px;overflow-y:auto;border-radius:10px;">', unsafe_allow_html=True)
+    plotly_dark(fig, actual_height)
+    st.plotly_chart(fig, use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 def pagina_estadisticas_medicas():
     st.markdown('<div class="sec-title">🏥 Estadísticas Médicas</div>',unsafe_allow_html=True)
@@ -836,8 +860,12 @@ def pagina_estadisticas_medicas():
                                marker_color="#4299e1", texttemplate="%{text:.0f}")
             fig_s.update_layout(yaxis=dict(categoryorder="total ascending"),
                                xaxis_title="N°", yaxis_title="")
+            # Mostrar solo primeras 15, resto con scroll
+            alto_visible = min(alto_s, 500)
+            st.markdown(f'<div style="max-height:{alto_visible}px;overflow-y:auto;border-radius:10px;">', unsafe_allow_html=True)
             plotly_dark(fig_s, alto_s)
             st.plotly_chart(fig_s, use_container_width=True)
+            st.markdown('</div>', unsafe_allow_html=True)
         else:
             st.info("No se encontró la columna MUSCL_ID / SIST M-E en los datos.")
 
@@ -854,8 +882,11 @@ def pagina_estadisticas_medicas():
                               marker_color="#48bb78", texttemplate="%{text:.0f}")
             fig5.update_layout(yaxis=dict(categoryorder="total ascending"),
                               xaxis_title="N°", yaxis_title="")
+            alto_visible_r = min(alto_reg, 500)
+            st.markdown(f'<div style="max-height:{alto_visible_r}px;overflow-y:auto;border-radius:10px;">', unsafe_allow_html=True)
             plotly_dark(fig5, alto_reg)
             st.plotly_chart(fig5, use_container_width=True)
+            st.markdown('</div>', unsafe_allow_html=True)
 
     # ── Figura humana — solo cuando hay jugador seleccionado ──
     if jsel != "Todas" and region_col:
