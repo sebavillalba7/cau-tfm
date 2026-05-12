@@ -233,12 +233,17 @@ def html_table(df, highlight_cols=None, num_format=None, max_rows=20, height=420
         </div>
     </div>''', unsafe_allow_html=True)
 
-def filtro_anio_widget(df,key):
-    if "AÑO" not in df.columns: return df,"Todos"
-    anios=sorted([int(a) for a in df["AÑO"].dropna().unique() if int(a)>1900],reverse=True)
-    opts=["Todos"]+[str(a) for a in anios]
-    sel=st.selectbox("📅 Año",opts,key=f"anio_{key}")
-    return (df[df["AÑO"]==int(sel)],sel) if sel!="Todos" else (df,"Todos")
+def filtro_anio_widget(df, key):
+    """Filtro multiselect de año. Retorna df filtrado."""
+    if "AÑO" not in df.columns: return df, []
+    anios = sorted([int(a) for a in df["AÑO"].dropna().unique() if int(a) > 1900], reverse=True)
+    sel = st.multiselect("📅 Año(s)", [str(a) for a in anios],
+                         default=[], key=f"anio_{key}",
+                         placeholder="Todos los años")
+    if sel:
+        sel_int = [int(s) for s in sel]
+        return df[df["AÑO"].isin(sel_int)], sel
+    return df, []
 
 
 # ══════════════════════════════════════════════════════════════
@@ -470,12 +475,12 @@ def pagina_estadisticas_medicas():
     jugs=["Todas"]+sorted(df[jcol].dropna().astype(str).unique().tolist())
     poss=["Todas"]+(sorted(df[pos_col].dropna().astype(str).unique().tolist()) if pos_col else [])
     tipos=["Todas"]+(sorted(df[tipo_col].dropna().astype(str).unique().tolist()) if tipo_col else [])
-    anios=["Todas"]+sorted([str(int(a)) for a in df["AÑO"].dropna().unique() if int(a)>1900],reverse=True) if "AÑO" in df.columns else ["Todas"]
+    anios_med=sorted([str(int(a)) for a in df["AÑO"].dropna().unique() if int(a)>1900],reverse=True) if "AÑO" in df.columns else []
     obs_vals=["Todas"]+(sorted(df[obs_col].dropna().astype(str).unique().tolist()) if obs_col else [])
     with fc[0]: jsel=st.selectbox("JUG",jugs,key="med_jug")
     with fc[1]: psel=st.selectbox("POS",poss,key="med_pos")
     with fc[2]: tsel=st.selectbox("TIPO",tipos,key="med_tipo")
-    with fc[3]: asel=st.selectbox("AÑO",anios,key="med_anio")
+    with fc[3]: asel=st.multiselect("📅 Año(s)",anios_med,default=[],key="med_anio",placeholder="Todos")
     with fc[4]: osel=st.selectbox("OBS",obs_vals,key="med_obs")
     st.markdown('</div>',unsafe_allow_html=True)
 
@@ -483,7 +488,7 @@ def pagina_estadisticas_medicas():
     if jsel!="Todas": dff=dff[dff[jcol].astype(str)==jsel]
     if psel!="Todas" and pos_col: dff=dff[dff[pos_col].astype(str)==psel]
     if tsel!="Todas" and tipo_col: dff=dff[dff[tipo_col].astype(str)==tsel]
-    if asel!="Todas" and "AÑO" in dff.columns: dff=dff[dff["AÑO"]==int(asel)]
+    if asel and "AÑO" in dff.columns: dff=dff[dff["AÑO"].isin([int(a) for a in asel])]
     if osel!="Todas" and obs_col: dff=dff[dff[obs_col].astype(str)==osel]
     les_df=dff[dff[tipo_col].astype(str).str.upper()=="LESION"].copy() if tipo_col else dff.copy()
 
@@ -580,29 +585,44 @@ def pagina_estadisticas_medicas():
 
     # ── Fila 2: N° lesiones x estructura M-E  +  N° lesiones x región ──
     st.markdown("---")
-    b1, b2 = st.columns(2)
-
     est_me_col=next((c for c in les_df.columns if any(x in c.lower() for x in ["est_m","estructura","musculo","isquio","cuad","adu"])),est_col)
-    with b1:
-        if est_me_col:
+
+    has_est = est_me_col is not None
+    has_reg = region_col is not None
+
+    if has_est and has_reg:
+        b1, b2 = st.columns(2)
+    elif has_est or has_reg:
+        b1 = b2 = st  # solo uno, usar ancho completo
+
+    if has_est:
+        with b1:
             st.markdown('<div class="subsec">N° lesiones x est. M-E</div>',unsafe_allow_html=True)
             vc=les_df[est_me_col].value_counts().reset_index(); vc.columns=["Estructura","N°"]
             vc=vc.sort_values("N°",ascending=True)
+            n_filas=len(vc)
+            alto_est=max(280, n_filas*36)
             fig4=px.bar(vc,x="N°",y="Estructura",orientation="h",text="N°",
                        color_discrete_sequence=["#4299e1"],template="plotly_dark")
-            fig4.update_traces(textposition="outside",textfont_color="#fff",marker_color="#4299e1")
-            plotly_dark(fig4,320)
+            fig4.update_traces(textposition="outside",textfont_color="#fff",
+                              marker_color="#4299e1",texttemplate="%{text:.0f}")
+            fig4.update_layout(yaxis=dict(autorange="reversed"))
+            plotly_dark(fig4, alto_est)
             st.plotly_chart(fig4,use_container_width=True)
 
-    with b2:
-        if region_col:
+    if has_reg:
+        with b2:
             st.markdown('<div class="subsec">N° lesiones x región</div>',unsafe_allow_html=True)
             vc_r=les_df[region_col].value_counts().reset_index(); vc_r.columns=["Región","N°"]
             vc_r=vc_r.sort_values("N°",ascending=True)
+            n_filas_r=len(vc_r)
+            alto_reg=max(280, n_filas_r*36)
             fig5=px.bar(vc_r,x="N°",y="Región",orientation="h",text="N°",
                        color_discrete_sequence=["#48bb78"],template="plotly_dark")
-            fig5.update_traces(textposition="outside",textfont_color="#fff",marker_color="#48bb78")
-            plotly_dark(fig5,320)
+            fig5.update_traces(textposition="outside",textfont_color="#fff",
+                              marker_color="#48bb78",texttemplate="%{text:.0f}")
+            fig5.update_layout(yaxis=dict(autorange="reversed"))
+            plotly_dark(fig5, alto_reg)
             st.plotly_chart(fig5,use_container_width=True)
 
     st.markdown("---")
