@@ -592,8 +592,8 @@ def pagina_estadisticas_medicas():
 
     if has_est and has_reg:
         b1, b2 = st.columns(2)
-    elif has_est or has_reg:
-        b1 = b2 = st  # solo uno, usar ancho completo
+    else:
+        b1, b2 = st.columns([1,1])
 
     if has_est:
         with b1:
