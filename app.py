@@ -810,12 +810,22 @@ def render_cuerpo_humano(df_jugador, region_col):
 
     svg = cuerpo_humano_svg(zonas_intensidad)
 
+    # Leyenda usando zonas_intensidad y REGION del dataframe
     leyenda_rows = ""
-    for region, cnt in sorted(reg_counts.items(), key=lambda x: -x[1]):
-        if region not in ["NA", "OTRA", "NO-MUSC"]:
-            leyenda_rows += f"""
+    if region_col and region_col in df_jugador.columns:
+        reg_counts = df_jugador[region_col].dropna().astype(str).str.upper().value_counts().to_dict()
+        for region, cnt in sorted(reg_counts.items(), key=lambda x: -x[1]):
+            if region not in ["NA", "OTRA", "NO-MUSC", "NAN"]:
+                leyenda_rows += f"""
             <tr>
                 <td style="padding:8px 12px;color:#94a3b8;font-size:13px;">{region.title()}</td>
+                <td style="padding:8px 12px;color:#f87171;font-weight:700;font-size:13px;text-align:right;">{cnt}</td>
+            </tr>"""
+    else:
+        for zona, cnt in sorted(zonas_intensidad.items(), key=lambda x: -x[1]):
+            leyenda_rows += f"""
+            <tr>
+                <td style="padding:8px 12px;color:#94a3b8;font-size:13px;">{zona.replace("_"," ").title()}</td>
                 <td style="padding:8px 12px;color:#f87171;font-weight:700;font-size:13px;text-align:right;">{cnt}</td>
             </tr>"""
 
