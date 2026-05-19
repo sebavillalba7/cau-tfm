@@ -594,10 +594,11 @@ def zonas_con_lado(zona_base: str, lado: str) -> list:
     return [f"{zona_base}_der", f"{zona_base}_izq"]
 
 def render_cuerpo_humano(df_jugador, region_col):
-    """Figura humana real con puntos coloreados superpuestos."""
+    """Figura Synoptic con zonas divididas por DER/IZQ coloreadas según lesiones."""
     if df_jugador.empty:
         return
 
+    # ── Calcular zonas afectadas ─────────────────────────────
     zonas_intensidad = {}
     muscl_col = next((c for c in df_jugador.columns if "muscl" in c.lower() or "sist_m" in c.lower()), None)
     lado_col  = next((c for c in df_jugador.columns if c.upper() == "LADO"), None)
@@ -614,124 +615,146 @@ def render_cuerpo_humano(df_jugador, region_col):
                 if l in ["DER","DERECHO","R","RIGHT"]:    lado = "der"
                 elif l in ["IZQ","IZQUIERDO","L","LEFT"]: lado = "izq"
                 else: lado = "bilat"
-            else:
-                lado = "bilat"
+            else: lado = "bilat"
         if not zona: continue
         for s in zonas_con_lado(zona, lado or "bilat"):
             zonas_intensidad[s] = zonas_intensidad.get(s, 0) + 1
 
-    # Leyenda
+    # ── Mapeo zona_lado → (svg_id, view, side) ───────────────
+    # view: front/back | side: der/izq (perspectiva del cuerpo)
+    ZONA_SVG_MAP = {
+        # FRONTAL
+        "muslo_ant_der":  ("Leg Upper",  "front", "der"),
+        "muslo_ant_izq":  ("Leg Upper",  "front", "izq"),
+        "muslo_int_der":  ("Leg Upper",  "front", "der"),
+        "muslo_int_izq":  ("Leg Upper",  "front", "izq"),
+        "muslo_ext_der":  ("Leg Upper",  "front", "der"),
+        "muslo_ext_izq":  ("Leg Upper",  "front", "izq"),
+        "rodilla_der":    ("Knee s ",    "front", "izq"),  # ojo: en SVG frontal rodilla DER está en lado izq imagen
+        "rodilla_izq":    ("Knee s ",    "front", "der"),  # y viceversa — ajustado por centroide
+        "pierna_der":     ("Leg Lower",  "front", "der"),
+        "pierna_izq":     ("Leg Lower",  "front", "izq"),
+        "tobillo_der":    ("Ankle",      "front", "der"),
+        "tobillo_izq":    ("Ankle",      "front", "izq"),
+        "pie_der":        ("Foot",       "front", "der"),
+        "pie_izq":        ("Foot",       "front", "izq"),
+        "cadera_der":     ("Hip",        "front", "der"),
+        "cadera_izq":     ("Hip",        "front", "izq"),
+        "abdomen":        ("Abdomen",    "front", "der"),
+        "pubis":          ("Abdomen",    "front", "der"),
+        "hombro_der":     ("Shoulder s", "front", "der"),
+        "hombro_izq":     ("Shoulder s", "front", "izq"),
+        "antebrazo_der":  ("Arm Lower",  "front", "der"),
+        "antebrazo_izq":  ("Arm Lower",  "front", "izq"),
+        "cabeza":         ("Head Soft Tissue", "front", "der"),
+        # POSTERIOR
+        "muslo_post_der": ("Leg Upper",  "back",  "der"),
+        "muslo_post_izq": ("Leg Upper",  "back",  "izq"),
+        "gluteo_der":     ("Buttocks",   "back",  "der"),
+        "gluteo_izq":     ("Buttocks",   "back",  "izq"),
+        "lumbar":         ("Back Lower", "back",  "der"),
+        "pierna_post_der":("Leg Lower",  "back",  "der"),
+        "pierna_post_izq":("Leg Lower",  "back",  "izq"),
+    }
+
+    # Acumular por (svg_id, view, side)
+    svg_zonas = {}
+    max_v = max(zonas_intensidad.values()) if zonas_intensidad else 1
+    for zona, cnt in zonas_intensidad.items():
+        mapping = ZONA_SVG_MAP.get(zona)
+        if mapping:
+            key = mapping  # (id, view, side)
+            svg_zonas[key] = svg_zonas.get(key, 0) + cnt
+
+    # ── Cargar SVG ────────────────────────────────────────────
+    svg_path = ASSETS / "body_map.svg"
+    if not svg_path.exists():
+        st.warning("No se encontró assets/body_map.svg")
+        return
+
+    with open(svg_path, "r", encoding="utf-8") as f:
+        svg_content = f.read()
+
+    # ── Generar JS para colorear polígonos por id+view+side ──
+    max_svg = max(svg_zonas.values()) if svg_zonas else 1
+    
+    js_coloring = ""
+    for (svg_id, view, side), cnt in svg_zonas.items():
+        ratio = min(cnt / max_svg, 1.0)
+        if ratio < 0.33:
+            cls = "lesion-low"
+        elif ratio < 0.66:
+            cls = "lesion-mid"
+        else:
+            cls = "lesion-high"
+        # Escapar comillas para JS
+        safe_id = svg_id.replace('"', '\"')
+        js_coloring += f"""
+        document.querySelectorAll('polygon[id="{safe_id}"][data-view="{view}"][data-side="{side}"]').forEach(function(el){{
+            el.classList.add('{cls}');
+        }});"""
+
+    # ── Leyenda ───────────────────────────────────────────────
     leyenda_rows = ""
     if region_col and region_col in df_jugador.columns:
         reg_counts = df_jugador[region_col].dropna().astype(str).str.upper().value_counts().to_dict()
+        max_reg = max(reg_counts.values()) if reg_counts else 1
         for region, cnt in sorted(reg_counts.items(), key=lambda x: -x[1]):
             if region not in ["NA","OTRA","NO-MUSC","NAN"]:
-                leyenda_rows += f"""<tr>
-                <td style="padding:6px 10px;color:#94a3b8;font-size:12px;">{region.title()}</td>
-                <td style="padding:6px 10px;color:#f87171;font-weight:700;font-size:12px;text-align:right;">{cnt}</td>
-                </tr>"""
+                bar_w = int(cnt / max_reg * 100)
+                leyenda_rows += f"""
+                <div style="margin-bottom:11px;">
+                    <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                        <span style="font-size:12px;color:#e2e8f0;font-weight:500;">{region.title()}</span>
+                        <span style="font-size:12px;font-weight:800;color:#f87171;">{cnt}</span>
+                    </div>
+                    <div style="background:rgba(255,255,255,0.07);border-radius:4px;height:6px;">
+                        <div style="width:{bar_w}%;background:linear-gradient(90deg,#c8102e,#f87171);height:6px;border-radius:4px;"></div>
+                    </div>
+                </div>"""
 
-    # Construir puntos SVG sobre la imagen
-    max_v = max(zonas_intensidad.values()) if zonas_intensidad else 1
-
-    def punto_color(cnt):
-        ratio = min(cnt / max_v, 1.0)
-        r = int(220 + 35 * ratio)
-        g = int(60 * (1 - ratio))
-        b = int(40 * (1 - ratio))
-        return f"rgb({r},{g},{b})"
-
-    puntos_html = ""
-    for zona_id, cnt in zonas_intensidad.items():
-        coords_entry = ZONA_COORDS.get(zona_id)
-        if not coords_entry:
-            # Intentar con solo la clave base (sin _der/_izq)
-            base = zona_id.rsplit("_", 1)[0] if "_" in zona_id else zona_id
-            coords_entry = ZONA_COORDS.get(base)
-        if not coords_entry:
-            continue
-        # Obtener coordenadas
-        lado_key = "der" if zona_id.endswith("_der") else ("izq" if zona_id.endswith("_izq") else "der")
-        coord = coords_entry.get(lado_key) or coords_entry.get("der") or coords_entry.get("izq")
-        if not coord:
-            continue
-        x_pct, y_pct = coord
-        color = punto_color(cnt)
-        size = 14 + min(cnt * 2, 12)  # tamaño proporcional
-        puntos_html += f"""
-        <div title="{zona_id.replace('_',' ').title()}: {cnt} lesión(es)"
-             style="position:absolute;left:{x_pct}%;top:{y_pct}%;
-                    width:{size}px;height:{size}px;
-                    background:{color};border-radius:50%;
-                    transform:translate(-50%,-50%);
-                    border:2px solid rgba(255,255,255,0.8);
-                    box-shadow:0 0 8px {color},0 0 16px rgba(200,16,46,0.5);
-                    cursor:pointer;z-index:10;
-                    animation:pulse 1.5s ease-in-out infinite alternate;">
-        </div>"""
-
-    # Imagen en base64
-    img_b64_val = img_b64(ASSETS / "hb.png") or ""
-    img_tag = f'<img src="data:image/png;base64,{img_b64_val}" style="width:100%;display:block;">' if img_b64_val else "<p>Sin imagen</p>"
-
+    total_les = len(df_jugador)
     html_body = f"""<!DOCTYPE html>
 <html>
 <head>
+<meta charset="utf-8">
 <style>
-  * {{margin:0;padding:0;box-sizing:border-box;}}
-  body {{background:#071428;font-family:Inter,sans-serif;padding:12px;}}
-  @keyframes pulse {{
-    from {{box-shadow:0 0 6px currentColor,0 0 12px rgba(200,16,46,0.4);}}
-    to   {{box-shadow:0 0 12px currentColor,0 0 24px rgba(200,16,46,0.7);}}
-  }}
-  .wrap {{display:flex;gap:20px;align-items:flex-start;}}
-  .img-wrap {{position:relative;flex:0 0 380px;}}
-  .ley {{flex:1;}}
-  .ley-title {{font-size:10px;color:#60a5fa;font-weight:700;letter-spacing:2px;
-               text-transform:uppercase;margin-bottom:10px;}}
-  table {{width:100%;border-collapse:collapse;}}
-  tr {{border-bottom:1px solid rgba(255,255,255,0.06);}}
-  .sub-title {{font-size:10px;color:#c8102e;font-weight:700;letter-spacing:2px;
-               text-transform:uppercase;margin-bottom:6px;text-align:center;}}
-  .legend-dot {{display:inline-block;width:10px;height:10px;border-radius:50%;
-                margin-right:6px;vertical-align:middle;}}
+  * {{ margin:0; padding:0; box-sizing:border-box; }}
+  body {{ background:#071428; font-family:Inter,sans-serif; padding:10px; }}
+  .wrap {{ display:flex; gap:16px; align-items:flex-start; }}
+  .svg-box {{ flex:0 0 60%; background:linear-gradient(135deg,#071428,#0d1e3c);
+              border-radius:14px; border:1px solid rgba(26,90,180,0.3); padding:8px; overflow:hidden; }}
+  .ley-box {{ flex:1; padding-top:4px; }}
+  .ley-title {{ font-size:10px; color:#60a5fa; font-weight:700; letter-spacing:2px;
+                text-transform:uppercase; margin-bottom:10px;
+                border-bottom:1px solid rgba(26,90,180,0.3); padding-bottom:6px; }}
+  .total-box {{ background:rgba(200,16,46,0.1); border:1px solid rgba(200,16,46,0.3);
+                border-radius:10px; padding:10px 14px; margin-bottom:14px; }}
+  .total-label {{ font-size:9px; color:#f87171; font-weight:700; letter-spacing:1px; text-transform:uppercase; }}
+  .total-val {{ font-size:28px; font-weight:900; color:#fff; line-height:1.1; }}
+  .no-lesion {{ color:#475569; font-size:13px; text-align:center; margin-top:20px; }}
+  .legend-note {{ font-size:9px; color:#334155; margin-top:12px; letter-spacing:0.5px; }}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <div class="img-wrap">
-    <div class="sub-title">Mapa corporal</div>
-    <div style="position:relative;width:100%;">
-      {img_tag}
-      {puntos_html}
-    </div>
-    <div style="display:flex;justify-content:space-around;margin-top:8px;">
-      <span style="font-size:9px;color:#64748b;">◀ FRONTAL</span>
-      <span style="font-size:9px;color:#64748b;">POSTERIOR ▶</span>
-    </div>
+  <div class="svg-box">
+    {svg_content}
   </div>
-  <div class="ley">
+  <div class="ley-box">
     <div class="ley-title">Regiones afectadas</div>
-    <table>
-      {'<tr><td colspan="2" style="padding:8px;color:#475569;font-size:12px;">Sin lesiones registradas</td></tr>' if not leyenda_rows else leyenda_rows}
-    </table>
-    <div style="margin-top:16px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.06);">
-      <div style="font-size:9px;color:#475569;margin-bottom:6px;">INTENSIDAD</div>
-      <div style="display:flex;gap:8px;align-items:center;">
-        <span class="legend-dot" style="background:rgb(220,60,40);"></span>
-        <span style="font-size:10px;color:#94a3b8;">1 lesión</span>
-        <span class="legend-dot" style="background:rgb(255,20,10);width:14px;height:14px;"></span>
-        <span style="font-size:10px;color:#94a3b8;">Múltiples</span>
-      </div>
-    </div>
+    {'<div class="total-box"><div class="total-label">Total registros</div><div class="total-val">' + str(total_les) + '</div></div>' if leyenda_rows else ''}
+    {leyenda_rows if leyenda_rows else '<div class="no-lesion">Sin lesiones<br>registradas</div>'}
+    <div class="legend-note">◀ FRONTAL &nbsp;&nbsp; POSTERIOR ▶</div>
   </div>
 </div>
+<script>
+{js_coloring}
+</script>
 </body>
 </html>"""
 
-    col_fig, _ = st.columns([3, 1])
-    with col_fig:
-        components.html(html_body, height=440, scrolling=False)
+    components.html(html_body, height=540, scrolling=False)
 
 
 def grafico_con_scroll(fig, height=380, max_items=15):
