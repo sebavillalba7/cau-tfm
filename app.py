@@ -14,36 +14,39 @@ st.set_page_config(page_title="CAU · Rendimiento Físico", page_icon="⚽",
 
 # ══════════════════════════════════════════════════════════════
 # PROTECCIÓN STREAMLIT CLOUD
-# Evita que una tabla/gráfico demasiado grande vuelva a tirar la app.
-# No cambia los cálculos: sólo reduce lo que se envía al navegador.
+# Evita caídas por enviar demasiados datos al navegador.
+# No modifica los cálculos, sólo limita la visualización.
 # ══════════════════════════════════════════════════════════════
 _ORIG_DATAFRAME = st.dataframe
 _ORIG_PLOTLY_CHART = st.plotly_chart
 _ORIG_WRITE = st.write
 
-def _limitar_dataframe_para_vista(data, max_rows=1000, max_cols=40):
+def _vista_df(data, max_rows=300, max_cols=30):
     if isinstance(data, pd.DataFrame):
         return data.iloc[:max_rows, :max_cols].copy()
     return data
 
-def _limitar_figura_plotly(fig, max_points_per_trace=2500):
+def _limpiar_plotly(fig, max_points=1200):
     try:
         for tr in fig.data:
             n = 0
-            if hasattr(tr, "x") and tr.x is not None:
-                n = max(n, len(tr.x))
-            if hasattr(tr, "y") and tr.y is not None:
-                n = max(n, len(tr.y))
-            if n > max_points_per_trace:
-                step = max(1, int(np.ceil(n / max_points_per_trace)))
-                for attr in ["x", "y", "text"]:
-                    if hasattr(tr, attr):
-                        val = getattr(tr, attr)
-                        try:
-                            if val is not None and hasattr(val, "__len__") and len(val) == n:
-                                setattr(tr, attr, val[::step])
-                        except Exception:
-                            pass
+            for attr in ["x", "y", "text", "customdata", "marker"]:
+                try:
+                    val = getattr(tr, attr, None)
+                    if val is not None and hasattr(val, "__len__"):
+                        n = max(n, len(val))
+                except Exception:
+                    pass
+            if n > max_points:
+                step = max(1, int(np.ceil(n / max_points)))
+                for attr in ["x", "y", "text", "customdata", "ids"]:
+                    try:
+                        val = getattr(tr, attr, None)
+                        if val is not None and hasattr(val, "__len__") and len(val) == n:
+                            setattr(tr, attr, val[::step])
+                    except Exception:
+                        pass
+        fig.update_layout(autosize=True)
     except Exception:
         pass
     return fig
@@ -51,23 +54,19 @@ def _limitar_figura_plotly(fig, max_points_per_trace=2500):
 def safe_dataframe(data=None, *args, **kwargs):
     if kwargs.pop("use_container_width", None) is True:
         kwargs["width"] = "stretch"
-    data = _limitar_dataframe_para_vista(data)
-    return _ORIG_DATAFRAME(data, *args, **kwargs)
+    return _ORIG_DATAFRAME(_vista_df(data), *args, **kwargs)
 
 def safe_plotly_chart(fig, *args, **kwargs):
     if kwargs.pop("use_container_width", None) is True:
         kwargs["width"] = "stretch"
-    fig = _limitar_figura_plotly(fig)
-    return _ORIG_PLOTLY_CHART(fig, *args, **kwargs)
+    return _ORIG_PLOTLY_CHART(_limpiar_plotly(fig), *args, **kwargs)
 
 def safe_write(*args, **kwargs):
-    args = tuple(_limitar_dataframe_para_vista(a) for a in args)
-    return _ORIG_WRITE(*args, **kwargs)
+    return _ORIG_WRITE(*tuple(_vista_df(a) for a in args), **kwargs)
 
 st.dataframe = safe_dataframe
 st.plotly_chart = safe_plotly_chart
 st.write = safe_write
-
 
 # ══════════════════════════════════════════════════════════════
 # CSS
@@ -236,63 +235,42 @@ def plotly_dark(fig,h=300):
 
 
 def html_table(df, highlight_cols=None, num_format=None, max_rows=20, height=420):
-    """Tabla dark liviana. Limita filas/columnas para no superar el límite de Streamlit Cloud."""
+    """Tabla dark segura para Streamlit Cloud. Limita filas renderizadas para no superar WebSocket."""
     if df.empty:
         st.info("Sin datos."); return
-
+    total_rows = len(df)
+    HARD_LIMIT_ROWS = 300
+    HARD_LIMIT_COLS = 30
+    if total_rows > HARD_LIMIT_ROWS or len(df.columns) > HARD_LIMIT_COLS:
+        st.caption(f"Vista limitada a {min(total_rows, HARD_LIMIT_ROWS)} filas y {min(len(df.columns), HARD_LIMIT_COLS)} columnas para evitar caída de la app. Total original: {total_rows} filas.")
+    df = df.iloc[:HARD_LIMIT_ROWS, :HARD_LIMIT_COLS].copy()
     highlight_cols = highlight_cols or []
+    highlight_cols = [c for c in highlight_cols if c in df.columns]
     num_format = num_format or {}
-
-    # ── Protección Streamlit Cloud ─────────────────────────────
-    # El error original fue por enviar demasiados datos al navegador. Esta tabla HTML,
-    # si recibe toda la base GPS, puede crecer demasiado. Por eso se limita
-    # SOLO la visualización; los datos y cálculos previos no se modifican.
-    total_rows, total_cols = df.shape
-    MAX_RENDER_ROWS = 500
-    MAX_RENDER_COLS = 35
-
-    if total_rows > MAX_RENDER_ROWS or total_cols > MAX_RENDER_COLS:
-        st.caption(
-            f"Vista optimizada: se muestran {min(total_rows, MAX_RENDER_ROWS)} "
-            f"filas y {min(total_cols, MAX_RENDER_COLS)} columnas de "
-            f"{total_rows} filas x {total_cols} columnas."
-        )
-
-    df = df.iloc[:MAX_RENDER_ROWS, :MAX_RENDER_COLS].copy()
-
+    
     # Calcular rangos para escala de color por columna
     col_ranges = {}
     for col in highlight_cols:
         if col in df.columns:
-            vals = pd.to_numeric(df[col].astype(str).str.replace(",", "."), errors="coerce").dropna()
+            vals = pd.to_numeric(df[col].astype(str).str.replace(",","."), errors="coerce").dropna()
             if len(vals) > 1:
                 col_ranges[col] = (vals.min(), vals.max())
 
-    def _safe_text(x, limit=80):
-        if pd.isna(x):
-            return "—"
-        s = str(x)
-        if s in ["nan", "None", "<NA>"]:
-            return "—"
-        return s[:limit] + "…" if len(s) > limit else s
-
     def cell_color(col, val):
-        if col not in col_ranges:
-            return ""
+        if col not in col_ranges: return ""
         try:
-            v = float(str(val).replace(",", "."))
+            v = float(str(val).replace(",","."))
             mn, mx = col_ranges[col]
-            if mx == mn:
-                return "background:#1a3a6e;color:#fff"
+            if mx == mn: return "background:#1a3a6e;color:#fff"
             ratio = (v - mn) / (mx - mn)
+            # Verde alto → Rojo bajo
             r = int(220 * (1 - ratio) + 20 * ratio)
             g = int(80 * (1 - ratio) + 180 * ratio)
             b = int(60 * (1 - ratio) + 60 * ratio)
             luminance = 0.299*r + 0.587*g + 0.114*b
             txt = "#fff" if luminance < 140 else "#000"
             return f"background:rgb({r},{g},{b});color:{txt};font-weight:700"
-        except Exception:
-            return ""
+        except: return ""
 
     rows_html = ""
     for _, row in df.iterrows():
@@ -301,10 +279,10 @@ def html_table(df, highlight_cols=None, num_format=None, max_rows=20, height=420
             val = row[col]
             fmt = num_format.get(col, "")
             try:
-                fval = float(str(val).replace(",", "."))
+                fval = float(str(val).replace(",","."))
                 display = f"{fval:{fmt}}" if fmt else (f"{fval:.1f}" if fval != int(fval) else f"{int(fval)}")
-            except Exception:
-                display = _safe_text(val)
+            except:
+                display = str(val) if str(val) not in ["nan","None","<NA>"] else "—"
             style = cell_color(col, val)
             cells += f'<td style="text-align:center;padding:9px 14px;border-bottom:1px solid rgba(255,255,255,0.05);white-space:nowrap;{style}">{display}</td>'
         rows_html += f"<tr>{cells}</tr>"
@@ -314,7 +292,7 @@ def html_table(df, highlight_cols=None, num_format=None, max_rows=20, height=420
         headers += f'<th style="text-align:center;padding:10px 14px;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#60a5fa;background:rgba(26,90,180,0.25);border-bottom:2px solid rgba(26,90,180,0.4);white-space:nowrap;">{col}</th>'
 
     scroll_y = f"overflow-y:auto;max-height:{height}px;" if len(df) > max_rows else "overflow-y:auto;"
-    st.markdown(f"""
+    st.markdown(f'''
     <div style="background:#071428;border:1px solid rgba(26,90,180,0.3);border-radius:14px;overflow:hidden;margin-top:8px;">
         <div style="{scroll_y}overflow-x:auto;width:100%;">
         <table style="width:max-content;min-width:100%;border-collapse:collapse;">
@@ -322,7 +300,7 @@ def html_table(df, highlight_cols=None, num_format=None, max_rows=20, height=420
             <tbody>{rows_html}</tbody>
         </table>
         </div>
-    </div>""", unsafe_allow_html=True)
+    </div>''', unsafe_allow_html=True)
 
 def filtro_anio_widget(df, key):
     """Filtro multiselect de año. Retorna df filtrado."""
