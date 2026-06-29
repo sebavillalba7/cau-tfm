@@ -7,6 +7,7 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import date, datetime
+import modelo_riesgo as mr
 
 st.set_page_config(page_title="CAU · Rendimiento Físico", page_icon="⚽",
                    layout="wide", initial_sidebar_state="expanded")
@@ -18,8 +19,12 @@ st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800;900&display=swap');
 .stApp{background:linear-gradient(135deg,#0c1e3e 0%,#112347 50%,#0c1e3e 100%);color:#e8ecf4;font-family:'Inter',sans-serif;}
-header[data-testid="stHeader"]{display:none!important;}
-section[data-testid="stSidebar"]{background:linear-gradient(180deg,#091528 0%,#0d1e38 100%)!important;border-right:1px solid rgba(200,16,46,0.3)!important;}
+header[data-testid="stHeader"]{background:transparent!important;box-shadow:none!important;}
+/* Botón abrir/cerrar sidebar SIEMPRE visible y por encima de la top-bar */
+[data-testid="stSidebarCollapseButton"],[data-testid="stSidebarCollapsedControl"],[data-testid="collapsedControl"],button[kind="headerNoPadding"]{display:flex!important;visibility:visible!important;opacity:1!important;z-index:100000!important;}
+[data-testid="stSidebarCollapsedControl"],[data-testid="collapsedControl"]{position:fixed!important;top:60px!important;left:8px!important;background:rgba(200,16,46,0.92)!important;border-radius:8px!important;padding:3px 5px!important;box-shadow:0 4px 12px rgba(0,0,0,.5)!important;}
+[data-testid="stSidebarCollapseButton"] svg,[data-testid="stSidebarCollapsedControl"] svg,[data-testid="collapsedControl"] svg,button[kind="headerNoPadding"] svg{color:#fff!important;fill:#fff!important;}
+section[data-testid="stSidebar"]{background:linear-gradient(180deg,#091528 0%,#0d1e38 100%)!important;border-right:1px solid rgba(200,16,46,0.3)!important;z-index:99998!important;}
 section[data-testid="stSidebar"] *{color:#e8ecf4!important;}
 section[data-testid="stSidebar"] .stButton>button{background:rgba(255,255,255,0.04)!important;color:#e8ecf4!important;border:1px solid rgba(255,255,255,0.07)!important;border-radius:10px!important;font-weight:500!important;text-align:left!important;padding-left:14px!important;transition:all .2s!important;}
 section[data-testid="stSidebar"] .stButton>button:hover{background:linear-gradient(135deg,#c8102e,#8b0000)!important;border-color:transparent!important;}
@@ -75,7 +80,7 @@ input:focus{border-color:#c8102e!important;color:#ffffff!important;}
 # ══════════════════════════════════════════════════════════════
 # ÁREAS Y USUARIOS
 # ══════════════════════════════════════════════════════════════
-AREAS={"Médica":{"icon":"🏥","secciones":["home","historial","estadisticas_medicas","evaluaciones","nutricion","resumen_individual"]},"Rendimiento":{"icon":"⚡","secciones":["home","historial","evaluaciones","demandas_fisicas","control_partidos","nutricion","resumen_individual"]},"Secretaría Técnica":{"icon":"📋","secciones":["home","historial","estadisticas_medicas","evaluaciones","demandas_fisicas","control_partidos","nutricion","resumen_individual"]},"Administración":{"icon":"🔧","secciones":["home","historial","estadisticas_medicas","evaluaciones","demandas_fisicas","control_partidos","nutricion","resumen_individual","admin"]},"Scout":{"icon":"🔍","secciones":["home","historial","control_partidos"]}}
+AREAS={"Médica":{"icon":"🏥","secciones":["home","historial","estadisticas_medicas","evaluaciones","riesgo_lesion","nutricion","resumen_individual"]},"Rendimiento":{"icon":"⚡","secciones":["home","historial","evaluaciones","demandas_fisicas","riesgo_lesion","control_partidos","nutricion","resumen_individual"]},"Secretaría Técnica":{"icon":"📋","secciones":["home","historial","estadisticas_medicas","evaluaciones","demandas_fisicas","riesgo_lesion","control_partidos","nutricion","resumen_individual"]},"Administración":{"icon":"🔧","secciones":["home","historial","estadisticas_medicas","evaluaciones","demandas_fisicas","riesgo_lesion","control_partidos","nutricion","resumen_individual","admin"]},"Scout":{"icon":"🔍","secciones":["home","historial","control_partidos"]}}
 def _hash(p): return hashlib.sha256(p.encode()).hexdigest()
 USUARIOS_BASE={"dr.garcia":{"nombre":"Dr. García","area":"Médica","rol":"Médico","email":"dr.garcia@cauunion.com","pwd":_hash("medica123"),"activo":True},"dr.lopez":{"nombre":"Dr. López","area":"Médica","rol":"Médico","email":"dr.lopez@cauunion.com","pwd":_hash("medica123"),"activo":True},"dr.martinez":{"nombre":"Dr. Martínez","area":"Médica","rol":"Médico","email":"dr.martinez@cauunion.com","pwd":_hash("medica123"),"activo":True},"kine.perez":{"nombre":"Lic. Pérez","area":"Médica","rol":"Kinesiólogo","email":"kine.perez@cauunion.com","pwd":_hash("kine123"),"activo":True},"kine.gomez":{"nombre":"Lic. Gómez","area":"Médica","rol":"Kinesiólogo","email":"kine.gomez@cauunion.com","pwd":_hash("kine123"),"activo":True},"kine.diaz":{"nombre":"Lic. Díaz","area":"Médica","rol":"Kinesiólogo","email":"kine.diaz@cauunion.com","pwd":_hash("kine123"),"activo":True},"kine.silva":{"nombre":"Lic. Silva","area":"Médica","rol":"Kinesiólogo","email":"kine.silva@cauunion.com","pwd":_hash("kine123"),"activo":True},"kine.torres":{"nombre":"Lic. Torres","area":"Médica","rol":"Kinesiólogo","email":"kine.torres@cauunion.com","pwd":_hash("kine123"),"activo":True},"pf.rodriguez":{"nombre":"Prof. Rodríguez","area":"Rendimiento","rol":"PF","email":"pf.rodriguez@cauunion.com","pwd":_hash("rend123"),"activo":True},"pf.fernandez":{"nombre":"Prof. Fernández","area":"Rendimiento","rol":"PF","email":"pf.fernandez@cauunion.com","pwd":_hash("rend123"),"activo":True},"pf.sanchez":{"nombre":"Prof. Sánchez","area":"Rendimiento","rol":"PF","email":"pf.sanchez@cauunion.com","pwd":_hash("rend123"),"activo":True},"nutri.ruiz":{"nombre":"Lic. Ruiz","area":"Rendimiento","rol":"Nutricionista","email":"nutri.ruiz@cauunion.com","pwd":_hash("rend123"),"activo":True},"nutri.mora":{"nombre":"Lic. Mora","area":"Rendimiento","rol":"Nutricionista","email":"nutri.mora@cauunion.com","pwd":_hash("rend123"),"activo":True},"nutri.vega":{"nombre":"Lic. Vega","area":"Rendimiento","rol":"Nutricionista","email":"nutri.vega@cauunion.com","pwd":_hash("rend123"),"activo":True},"ct.ramirez":{"nombre":"Prof. Ramírez","area":"Rendimiento","rol":"Cuerpo Técnico","email":"ct.ramirez@cauunion.com","pwd":_hash("rend123"),"activo":True},"ct.jimenez":{"nombre":"Prof. Jiménez","area":"Rendimiento","rol":"Cuerpo Técnico","email":"ct.jimenez@cauunion.com","pwd":_hash("rend123"),"activo":True},"ct.herrera":{"nombre":"Prof. Herrera","area":"Rendimiento","rol":"Cuerpo Técnico","email":"ct.herrera@cauunion.com","pwd":_hash("rend123"),"activo":True},"st.castro":{"nombre":"Lic. Castro","area":"Secretaría Técnica","rol":"Sec. Técnico","email":"st.castro@cauunion.com","pwd":_hash("sec123"),"activo":True},"st.vargas":{"nombre":"Lic. Vargas","area":"Secretaría Técnica","rol":"Sec. Técnico","email":"st.vargas@cauunion.com","pwd":_hash("sec123"),"activo":True},"st.medina":{"nombre":"Lic. Medina","area":"Secretaría Técnica","rol":"Sec. Técnico","email":"st.medina@cauunion.com","pwd":_hash("sec123"),"activo":True},"st.guerrero":{"nombre":"Lic. Guerrero","area":"Secretaría Técnica","rol":"Sec. Técnico","email":"st.guerrero@cauunion.com","pwd":_hash("sec123"),"activo":True},"admin":{"nombre":"Administrador","area":"Administración","rol":"Admin","email":"futbolprofesionalcau@gmail.com","pwd":_hash("admin123"),"activo":True},"scout.blanco":{"nombre":"Lic. Blanco","area":"Scout","rol":"Scout","email":"scout.blanco@cauunion.com","pwd":_hash("scout123"),"activo":True},"scout.acosta":{"nombre":"Lic. Acosta","area":"Scout","rol":"Scout","email":"scout.acosta@cauunion.com","pwd":_hash("scout123"),"activo":True},"scout.rios":{"nombre":"Lic. Ríos","area":"Scout","rol":"Scout","email":"scout.rios@cauunion.com","pwd":_hash("scout123"),"activo":True}}
 
@@ -345,7 +350,7 @@ def render_sidebar():
         esc=f'<img src="data:image/png;base64,{b64}" style="width:56px;height:56px;object-fit:contain;filter:drop-shadow(0 0 10px rgba(200,16,46,.5));">' if b64 else "⚽"
         st.markdown(f'<div style="text-align:center;padding:14px 0 12px;border-bottom:1px solid rgba(200,16,46,.25);margin-bottom:14px;">{esc}<div style="font-family:\'Bebas Neue\',sans-serif;font-size:16px;letter-spacing:3px;margin-top:8px;color:#fff;">CAU · UNIÓN</div><div style="font-size:12px;color:#f87171;margin-top:3px;">{AREAS[u["area"]]["icon"]} {u["nombre"]}</div><div style="font-size:10px;color:#475569;margin-top:2px;">{u["rol"]} · {u["area"]}</div></div>',unsafe_allow_html=True)
         st.markdown('<p style="font-size:10px;letter-spacing:3px;color:#475569;text-transform:uppercase;margin:0 0 8px;">MENÚ</p>',unsafe_allow_html=True)
-        for key,icon,label in [("home","🏠","Inicio"),("historial","👤","Historial Jugadores"),("estadisticas_medicas","🏥","Estadísticas Médicas"),("evaluaciones","⚡","Evaluaciones Físicas"),("demandas_fisicas","📡","Demandas Físicas"),("control_partidos","⚽","Control de Partidos"),("nutricion","🥗","Control Nutricional"),("resumen_individual","📄","Resumen Individual")]:
+        for key,icon,label in [("home","🏠","Inicio"),("historial","👤","Historial Jugadores"),("estadisticas_medicas","🏥","Estadísticas Médicas"),("evaluaciones","⚡","Evaluaciones Físicas"),("demandas_fisicas","📡","Demandas Físicas"),("riesgo_lesion","🤖","Riesgo de Lesión"),("control_partidos","⚽","Control de Partidos"),("nutricion","🥗","Control Nutricional"),("resumen_individual","📄","Resumen Individual")]:
             if tiene_acceso(u,key):
                 if st.button(f"{icon}  {label}",key=f"nav_{key}",use_container_width=True):
                     st.session_state.pagina=key;st.rerun()
@@ -1699,10 +1704,153 @@ def pagina_nutricion():
 # ══════════════════════════════════════════════════════════════
 # ROUTER Y MAIN
 # ══════════════════════════════════════════════════════════════
+@st.cache_data(ttl=300, show_spinner=False)
+def _pipeline_riesgo_cache(gps_df, les_df, horizonte):
+    """Entrena/cachea el modelo. Se re-ejecuta solo si cambian los datos."""
+    return mr.pipeline_riesgo(gps_df, les_df, horizonte=horizonte)
+
+
+def pagina_riesgo():
+    st.markdown('<div class="sec-title">🤖 Riesgo de Lesión — FWF + Machine Learning</div>',
+                unsafe_allow_html=True)
+    pdf_btn()
+
+    gps = cargar_sheet("gps")
+    les = cargar_sheet("lesiones")
+    if gps.empty:
+        no_data("GPS"); return
+
+    # ── Descripción metodológica (defensa TFM) ──────────────────────────────
+    st.markdown(
+        '<div style="background:rgba(8,18,38,.9);border:1px solid rgba(200,16,46,.2);'
+        'border-radius:12px;padding:16px;margin-bottom:14px;">'
+        '<div style="font-size:14px;font-weight:800;color:#fff;margin-bottom:6px;">'
+        'Footballer Workload Footprint (FWF)</div>'
+        '<div style="font-size:12px;color:#94a3b8;line-height:1.7;">'
+        'Índice de carga compuesto (0–100) a partir de variables GPS: '
+        '<b style="color:#e2e8f0;">distancia · alta velocidad · sprints · aceleraciones · desaceleraciones</b>. '
+        'Sobre el FWF se calculan predictores de la literatura de monitoreo de carga '
+        '(<b style="color:#e2e8f0;">ACWR 7:28, monotonía, strain</b>) y un modelo '
+        '<b style="color:#e2e8f0;">RandomForest</b> estima la probabilidad de lesión en los próximos días.'
+        '</div></div>', unsafe_allow_html=True)
+
+    # ── Control: horizonte de predicción (SLIDER — requisito del máster) ─────
+    st.markdown('<div class="filter-bar">', unsafe_allow_html=True)
+    cfa, cfb = st.columns([1, 2])
+    with cfa:
+        horizonte = st.slider("🗓️ Horizonte de riesgo (días)", 3, 21, 7, 1,
+                              key="riesgo_horizonte")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    out = _pipeline_riesgo_cache(gps, les, horizonte)
+    fwf = out["fwf"]
+    df = out["df"]
+
+    # ── Estado del modelo ────────────────────────────────────────────────────
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("📊 Registros", out["n"])
+    c2.metric("🏥 Lesiones", out["n_lesiones"])
+    c3.metric("🎯 AUC", f"{out['auc']:.2f}" if out.get("auc") else "—")
+    c4.metric("⏱️ Ventana", f"{horizonte} días")
+    st.caption(out.get("motivo", ""))
+
+    if not out["ok"]:
+        st.warning("No se pudo entrenar el modelo: " + out.get("motivo", ""))
+        return
+
+    tab1, tab2, tab3 = st.tabs(["🚦 Plantel", "👤 Individual", "🧠 Modelo"])
+
+    # ── TAB 1: semáforo de riesgo del plantel ───────────────────────────────
+    with tab1:
+        st.markdown('<div class="subsec">Riesgo actual por jugador</div>',
+                    unsafe_allow_html=True)
+        ult = (df.sort_values("_fecha").groupby("jugador").tail(1)
+               .sort_values("riesgo_pred", ascending=False))
+        tabla = pd.DataFrame({
+            "Jugador": ult["jugador"],
+            "FWF": ult["FWF"].round(1),
+            "ACWR": ult["ACWR"],
+            "Strain": ult["strain"].round(0),
+            "Riesgo %": (ult["riesgo_pred"] * 100).round(0),
+            "Nivel": [mr.nivel_riesgo(p)[0] for p in ult["riesgo_pred"]],
+        }).reset_index(drop=True)
+        html_table(tabla, highlight_cols=["Riesgo %", "FWF"], max_rows=30)
+
+        fig = px.bar(ult.sort_values("riesgo_pred"),
+                     x="riesgo_pred", y="jugador", orientation="h",
+                     labels={"riesgo_pred": "Probabilidad de lesión", "jugador": ""},
+                     color="riesgo_pred",
+                     color_continuous_scale=["#22c55e", "#f59e0b", "#ef4444"],
+                     range_color=[0, 1])
+        plotly_dark(fig, max(260, 26 * len(ult)))
+        fig.update_layout(coloraxis_showscale=False)
+        st.plotly_chart(fig, use_container_width=True)
+
+    # ── TAB 2: detalle individual ────────────────────────────────────────────
+    with tab2:
+        jug = st.selectbox("Jugador",
+                           sorted(df["jugador"].dropna().unique().tolist()),
+                           key="riesgo_jug")
+        dji = df[df["jugador"] == jug].sort_values("_fecha")
+        if dji.empty:
+            st.info("Sin datos para el jugador."); 
+        else:
+            actual = dji.iloc[-1]
+            lab, color = mr.nivel_riesgo(actual["riesgo_pred"])
+            zlab, zcol = mr.zona_acwr(actual["ACWR"])
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("FWF actual", f"{actual['FWF']:.1f}")
+            m2.metric("ACWR", f"{actual['ACWR']:.2f}" if pd.notna(actual["ACWR"]) else "—")
+            m3.metric("Strain", f"{actual['strain']:.0f}" if pd.notna(actual["strain"]) else "—")
+            m4.metric("Riesgo", f"{actual['riesgo_pred']*100:.0f}%")
+            st.markdown(
+                f'<div style="display:flex;gap:10px;margin:4px 0 14px;">'
+                f'<span class="chip" style="background:{color}22;border-color:{color}66;color:{color};">'
+                f'Nivel de riesgo: {lab}</span>'
+                f'<span class="chip" style="background:{zcol}22;border-color:{zcol}66;color:{zcol};">'
+                f'Zona ACWR: {zlab}</span></div>', unsafe_allow_html=True)
+
+            # FWF en el tiempo + banda de riesgo
+            fig = px.line(dji, x="_fecha", y="FWF", markers=True,
+                          labels={"_fecha": "Fecha", "FWF": "FWF"})
+            fig.update_traces(line_color="#c8102e", marker_color="#fff")
+            plotly_dark(fig, 280)
+            st.plotly_chart(fig, use_container_width=True)
+
+            # ACWR en el tiempo con bandas óptimo/riesgo
+            fig2 = px.line(dji, x="_fecha", y="ACWR",
+                           labels={"_fecha": "Fecha", "ACWR": "ACWR"})
+            fig2.add_hline(y=0.8, line_dash="dot", line_color="#60a5fa")
+            fig2.add_hline(y=1.3, line_dash="dot", line_color="#f59e0b",
+                           annotation_text="Óptimo ≤1.3")
+            fig2.add_hline(y=1.5, line_dash="dot", line_color="#ef4444",
+                           annotation_text="Riesgo >1.5")
+            fig2.update_traces(line_color="#f87171")
+            plotly_dark(fig2, 260)
+            st.plotly_chart(fig2, use_container_width=True)
+
+    # ── TAB 3: explicabilidad del modelo ─────────────────────────────────────
+    with tab3:
+        st.markdown('<div class="subsec">Importancia de variables (RandomForest)</div>',
+                    unsafe_allow_html=True)
+        imp = (pd.Series(out["importancias"]).sort_values()
+               .rename_axis("variable").reset_index(name="importancia"))
+        figi = px.bar(imp, x="importancia", y="variable", orientation="h",
+                      color="importancia",
+                      color_continuous_scale=px.colors.sequential.Reds)
+        plotly_dark(figi, 320)
+        figi.update_layout(coloraxis_showscale=False)
+        st.plotly_chart(figi, use_container_width=True)
+        st.caption(
+            "Interpretación: a mayor importancia, mayor peso de la variable en la "
+            "predicción de riesgo. El FWF y la carga crónica suelen dominar, en línea "
+            "con la evidencia de que la carga acumulada modula la susceptibilidad a lesión.")
+
+
 def render_pagina():
     u=st.session_state.usuario;p=st.session_state.pagina
     if not tiene_acceso(u,p) and p!="admin": st.error("🚫 No tenés acceso.");return
-    {"home":pagina_home,"historial":pagina_historial,"estadisticas_medicas":pagina_estadisticas_medicas,"evaluaciones":pagina_evaluaciones,"demandas_fisicas":pagina_demandas,"control_partidos":pagina_control_partidos,"nutricion":pagina_nutricion,"resumen_individual":pagina_resumen,"admin":pagina_admin}.get(p,lambda:st.error("Página no encontrada"))()
+    {"home":pagina_home,"historial":pagina_historial,"estadisticas_medicas":pagina_estadisticas_medicas,"evaluaciones":pagina_evaluaciones,"demandas_fisicas":pagina_demandas,"riesgo_lesion":pagina_riesgo,"control_partidos":pagina_control_partidos,"nutricion":pagina_nutricion,"resumen_individual":pagina_resumen,"admin":pagina_admin}.get(p,lambda:st.error("Página no encontrada"))()
 
 if not st.session_state.logged:
     pagina_login()
