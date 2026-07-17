@@ -8,6 +8,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import date, datetime
 import modelo_riesgo as mr
+import demandas_fisicas as dfx
+import pdf_export
 
 st.set_page_config(page_title="CAU · Rendimiento Físico", page_icon="⚽",
                    layout="wide", initial_sidebar_state="expanded")
@@ -147,37 +149,46 @@ def top_bar(logged=False,usuario=None):
     </div><div class="spacer-top"></div>
     <script>(function(){{function u(){{var n=new Date(),h=String(n.getHours()).padStart(2,'0'),m=String(n.getMinutes()).padStart(2,'0');document.querySelectorAll('.local-time').forEach(e=>e.textContent=h+':'+m);var d=String(n.getDate()).padStart(2,'0'),mo=String(n.getMonth()+1).padStart(2,'0'),y=n.getFullYear();document.querySelectorAll('.local-date').forEach(e=>e.textContent=d+'/'+mo+'/'+y);}}u();setInterval(u,10000);}})();</script>""",unsafe_allow_html=True)
 
-def pdf_btn():
-    st.markdown('<div style="display:flex;justify-content:flex-end;margin-bottom:10px;"><button onclick="window.print()" style="background:linear-gradient(135deg,#c8102e,#8b0000);color:#fff;border:none;border-radius:8px;padding:7px 16px;font-weight:700;font-size:12px;cursor:pointer;">📄 Exportar PDF</button></div>',unsafe_allow_html=True)
+def pdf_btn(titulo=None,subtitulo="",kpis=None,tablas=None,notas=None,key=None):
+    """PDF real con fpdf2. El anterior usaba onclick='window.print()', que Streamlit
+    sanitiza (elimina el atributo onclick), por eso ningun boton funcionaba."""
+    nombres={"home":"Inicio","historial":"Historial de Jugadores","estadisticas_medicas":"Estadisticas Medicas",
+             "evaluaciones":"Evaluaciones Fisicas","riesgo_lesion":"Riesgo de Lesion",
+             "demandas_fisicas":"Demandas Fisicas","control_partidos":"Control de Partidos",
+             "nutricion":"Control Nutricional","resumen_individual":"Resumen Individual","admin":"Panel Admin"}
+    pag=st.session_state.get("pagina","home")
+    t=titulo or nombres.get(pag,"Informe")
+    u=st.session_state.get("usuario") or {}
+    sub=subtitulo or f"Club A. Union - {u.get('area','')} - {u.get('nombre','')}"
+    pdf_export.pdf_btn(t,sub,kpis,tablas,notas,escudo=ASSETS/"escudo_union.png",key=key or pag)
 
-def no_data(n):
-    st.markdown(f'<div style="background:rgba(200,16,46,0.07);border:1px dashed rgba(200,16,46,0.3);border-radius:12px;padding:24px;text-align:center;color:#64748b;">⚠️ No se pudo cargar <b style="color:#f87171;">{n}</b>.<br><small>Hacé la hoja pública: Compartir → Cualquiera con el vínculo → Lector.</small></div>',unsafe_allow_html=True)
-
-def jug_col_find(df):
-    for c in df.columns:
-        if c.upper() in ["JUG","JUGADOR","NAME","PLAYER","ATLETA","NOMBRE"]: return c
-    for c in df.columns:
-        if any(x in c.lower() for x in ["jug","name","player","atleta"]): return c
-    return df.columns[0]
-
-def pos_col_find(df):
-    for c in df.columns:
-        if c.upper() in ["POS","POSICION","POSICIÓN","POSITION"]: return c
-    return None
 
 def plotly_dark(fig,h=300):
+    # Leyendas y ejes en blanco: el gris #64748b anterior era ilegible sobre el fondo azul.
     fig.update_layout(paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(0,0,0,0)",
-        margin=dict(l=0,r=0,t=20,b=0),height=h,font_color="#e2e8f0",
-        legend=dict(bgcolor="rgba(0,0,0,0)",font_color="#e2e8f0"))
-    fig.update_xaxes(gridcolor="rgba(255,255,255,0.06)",color="#64748b")
-    fig.update_yaxes(gridcolor="rgba(255,255,255,0.06)",color="#64748b")
+        margin=dict(l=0,r=0,t=20,b=0),height=h,font=dict(color="#ffffff",size=12),
+        legend=dict(bgcolor="rgba(8,18,38,0.75)",bordercolor="rgba(255,255,255,0.15)",
+                    borderwidth=1,font=dict(color="#ffffff",size=11)))
+    fig.update_xaxes(gridcolor="rgba(255,255,255,0.08)",color="#ffffff",
+                     title_font=dict(color="#ffffff"),tickfont=dict(color="#e2e8f0"))
+    fig.update_yaxes(gridcolor="rgba(255,255,255,0.08)",color="#ffffff",
+                     title_font=dict(color="#ffffff"),tickfont=dict(color="#e2e8f0"))
+    fig.update_annotations(font_color="#ffffff")
     return fig
 
 
-def html_table(df, highlight_cols=None, num_format=None, max_rows=20, height=420):
-    """Tabla dark con headers coloreados, valores centrados, escala de color. Scroll si hay más de max_rows."""
-    if df.empty:
+def html_table(df, highlight_cols=None, num_format=None, max_rows=15, height=420, max_cols=14):
+    """Tabla dark con scroll. max_rows/max_cols RECORTAN de verdad los datos enviados al browser.
+    Antes max_rows solo decidia el CSS de scroll pero se renderizaban TODAS las filas: con la hoja
+    GPS completa (miles de filas x 60 columnas) eso generaba ~250 MB de HTML y Streamlit abortaba
+    con MessageSizeError."""
+    if df is None or df.empty:
         st.info("Sin datos."); return
+    _total_filas, _total_cols = len(df), len(df.columns)
+    if _total_cols > max_cols:
+        df = df[list(df.columns)[:max_cols]]
+    if _total_filas > max_rows:
+        df = df.head(max_rows)
     highlight_cols = highlight_cols or []
     num_format = num_format or {}
     
@@ -234,6 +245,9 @@ def html_table(df, highlight_cols=None, num_format=None, max_rows=20, height=420
         </table>
         </div>
     </div>''', unsafe_allow_html=True)
+    if _total_filas > max_rows or _total_cols > max_cols:
+        st.caption(f"Mostrando {min(max_rows,_total_filas)} de {_total_filas} filas y "
+                   f"{min(max_cols,_total_cols)} de {_total_cols} columnas (vista optimizada).")
 
 def filtro_anio_widget(df, key):
     """Filtro multiselect de año. Retorna df filtrado."""
@@ -1703,7 +1717,7 @@ def pagina_nutricion():
 def render_pagina():
     u=st.session_state.usuario;p=st.session_state.pagina
     if not tiene_acceso(u,p) and p!="admin": st.error("🚫 No tenés acceso.");return
-    {"home":pagina_home,"historial":pagina_historial,"estadisticas_medicas":pagina_estadisticas_medicas,"evaluaciones":pagina_evaluaciones,"riesgo_lesion":lambda:mr.pagina_riesgo_lesion(cargar_sheet),"demandas_fisicas":pagina_demandas,"control_partidos":pagina_control_partidos,"nutricion":pagina_nutricion,"resumen_individual":pagina_resumen,"admin":pagina_admin}.get(p,lambda:st.error("Página no encontrada"))()
+    {"home":pagina_home,"historial":pagina_historial,"estadisticas_medicas":pagina_estadisticas_medicas,"evaluaciones":pagina_evaluaciones,"riesgo_lesion":lambda:mr.pagina_riesgo_lesion(cargar_sheet),"demandas_fisicas":lambda:dfx.pagina_demandas_fisicas(cargar_sheet,pdf_btn),"control_partidos":pagina_control_partidos,"nutricion":pagina_nutricion,"resumen_individual":pagina_resumen,"admin":pagina_admin}.get(p,lambda:st.error("Página no encontrada"))()
 
 if not st.session_state.logged:
     pagina_login()
