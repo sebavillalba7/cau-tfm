@@ -339,12 +339,37 @@ def pagina_riesgo_lesion(cargar_sheet):
     if gps is None or gps.empty:
         st.warning("No se pudo cargar la hoja GPS."); return
 
-    # Slider (cumple requisito del máster) → ventana de predicción
-    cf1, cf2 = st.columns([2, 1])
-    with cf1:
-        ventana = st.slider("🪟 Ventana de predicción (días tras la sesión)",
-                            min_value=5, max_value=21, value=10, step=1, key="riesgo_ventana",
+    # ── Filtros (mismo criterio que el resto de la app) ──────────────
+    st.markdown('<div class="filter-bar">', unsafe_allow_html=True)
+    f1, f2, f3, f4 = st.columns(4)
+    cg = mapear_columnas_gps(gps)
+    col_temp = _find(gps, ["TEMP", "AÑO", "ANIO"], contains=[])
+    col_pos = _find(gps, ["POS"], contains=[])
+    with f1:
+        if col_temp:
+            ts = ["Todas"] + sorted([str(x) for x in gps[col_temp].dropna().unique() if str(x) != "nan"], reverse=True)
+            tsel = st.selectbox("Año", ts, index=1 if len(ts) > 1 else 0, key="rl_temp")
+            if tsel != "Todas":
+                gps = gps[gps[col_temp].astype(str) == tsel]
+    with f2:
+        if col_pos:
+            ps = sorted([str(x) for x in gps[col_pos].dropna().unique() if str(x) != "nan"])
+            psel = st.multiselect("Posición", ps, default=[], key="rl_pos")
+            if psel:
+                gps = gps[gps[col_pos].astype(str).isin(psel)]
+    with f3:
+        if cg.get("jugador"):
+            js = sorted([str(x) for x in gps[cg["jugador"]].dropna().unique()])
+            jsel = st.multiselect("Jugador", js, default=[], key="rl_jug")
+            if jsel:
+                gps = gps[gps[cg["jugador"]].astype(str).isin(jsel)]
+    with f4:
+        ventana = st.slider("Ventana de predicción (días)", 5, 21, 10, 1, key="riesgo_ventana",
                             help="Etiqueta como 'riesgo' una sesión si el jugador se lesiona dentro de esta ventana.")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    if gps.empty:
+        st.info("Sin sesiones para los filtros seleccionados."); return
 
     @st.cache_data(ttl=300, show_spinner="Entrenando modelo de riesgo…")
     def _pipeline(_gps, _les, vent):
@@ -390,8 +415,11 @@ def pagina_riesgo_lesion(cargar_sheet):
     if riesgo_jug.empty:
         st.info("Sin datos de riesgo para mostrar.")
     else:
+        n_show = st.slider("Filas a mostrar", 5, max(10, len(riesgo_jug)),
+                           min(10, len(riesgo_jug)), key="rl_nrows")
+        vista_rj = riesgo_jug.head(n_show)
         filas = ""
-        for _, r in riesgo_jug.iterrows():
+        for _, r in vista_rj.iterrows():
             niv, color = nivel_riesgo(r["Riesgo"])
             fecha = r["Última sesión"].strftime("%d/%m/%Y") if pd.notna(r["Última sesión"]) else "—"
             acwr = f'{r["ACWR"]:.2f}' if pd.notna(r["ACWR"]) else "—"
@@ -410,13 +438,16 @@ def pagina_riesgo_lesion(cargar_sheet):
                       f'text-transform:uppercase;color:#60a5fa;background:rgba(26,90,180,0.25);">{h}</th>'
                       for h, a in [("Jugador","left"),("Última sesión","center"),("Riesgo","center"),("Nivel","center"),("ACWR","center")])
             + f'</tr></thead><tbody>{filas}</tbody></table></div>', unsafe_allow_html=True)
+        st.caption(f"Mostrando {len(vista_rj)} de {len(riesgo_jug)} jugadores, ordenados por riesgo.")
 
         # ── Gráfico de barras de riesgo ──────────────────────────────
-        fig = px.bar(riesgo_jug, x="Jugador", y="Riesgo", template="plotly_dark",
+        fig = px.bar(vista_rj, x="Jugador", y="Riesgo", template="plotly_dark",
                      color="Riesgo", color_continuous_scale=["#4ade80", "#fbbf24", "#ef4444"],
                      range_color=[0, 100])
         fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                          margin=dict(l=0, r=0, t=20, b=0), height=320, coloraxis_showscale=False)
+                          margin=dict(l=0, r=0, t=20, b=0), height=320, coloraxis_showscale=False,
+                          font=dict(color="#ffffff"))
+        fig.update_xaxes(color="#ffffff"); fig.update_yaxes(color="#ffffff")
         st.plotly_chart(fig, use_container_width=True)
 
     # ── Importancia de features (solo ML) ────────────────────────────
@@ -427,7 +458,9 @@ def pagina_riesgo_lesion(cargar_sheet):
                       color_discrete_sequence=["#c8102e"])
         figi.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
                            margin=dict(l=0, r=0, t=10, b=0), height=300,
-                           yaxis=dict(categoryorder="total ascending"))
+                           font=dict(color="#ffffff"),
+                           yaxis=dict(categoryorder="total ascending", color="#ffffff"),
+                           xaxis=dict(color="#ffffff"))
         st.plotly_chart(figi, use_container_width=True)
 
     # ── Evolución individual (riesgo + ACWR) ─────────────────────────
@@ -447,7 +480,12 @@ def pagina_riesgo_lesion(cargar_sheet):
         figt.add_hline(y=33, line_dash="dot", line_color="#fbbf24", annotation_text="Medio")
         figt.update_layout(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
                            plot_bgcolor="rgba(0,0,0,0)", margin=dict(l=0, r=0, t=20, b=0),
-                           height=320, legend=dict(orientation="h", y=1.12, x=0.5, xanchor="center"))
+                           height=320, font=dict(color="#ffffff"),
+                           xaxis=dict(color="#ffffff"), yaxis=dict(color="#ffffff"),
+                           legend=dict(orientation="h", y=1.12, x=0.5, xanchor="center",
+                                       bgcolor="rgba(8,18,38,0.75)", bordercolor="rgba(255,255,255,0.15)",
+                                       borderwidth=1, font=dict(color="#ffffff", size=11)))
+        figt.update_annotations(font_color="#ffffff")
         st.plotly_chart(figt, use_container_width=True)
 
     # ── Nota metodológica (honestidad académica) ─────────────────────
