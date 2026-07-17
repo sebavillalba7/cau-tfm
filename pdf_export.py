@@ -184,12 +184,15 @@ def generar_pdf(titulo, subtitulo="", kpis=None, tablas=None, notas=None, escudo
     pdf.alias_nb_pages()
     pdf.add_page()
 
+    tablas = [(t, d) for t, d in (tablas or []) if d is not None and not d.empty]
+    hay_contenido = bool(kpis or tablas or notas)
+
     n = 1
     if kpis:
         pdf.seccion(f"{n:02d}", "Resumen de indicadores")
         pdf.kpis(kpis)
         n += 1
-    for tit, df in (tablas or []):
+    for tit, df in tablas:
         pdf.seccion(f"{n:02d}", tit)
         pdf.tabla(df)
         pdf.ln(3)
@@ -197,12 +200,47 @@ def generar_pdf(titulo, subtitulo="", kpis=None, tablas=None, notas=None, escudo
     if notas:
         pdf.seccion(f"{n:02d}", "Notas")
         pdf.parrafo(notas)
+    if not hay_contenido:
+        # Antes el PDF salia con header y footer pero el cuerpo en blanco.
+        pdf.seccion("01", "Sin datos exportables")
+        pdf.parrafo(
+            "Esta seccion no tiene datos tabulares configurados para exportar, o los filtros "
+            "activos no devolvieron resultados. Ajusta los filtros y volve a generar el informe.")
 
     out = pdf.output(dest="S")
     # fpdf2 devuelve bytearray (>=2.7) o str (legacy). Normalizamos a bytes.
     if isinstance(out, str):
         return out.encode("latin-1")
     return bytes(out)
+
+
+# CSS del botón: por defecto Streamlit lo pinta blanco y el texto queda invisible
+# sobre el fondo oscuro de la app. Lo forzamos al rojo institucional.
+_CSS_BTN = """
+<style>
+div[data-testid="stDownloadButton"] button,
+div[data-testid="stDownloadButton"] > button,
+.stDownloadButton button {
+    background: linear-gradient(135deg,#c8102e,#8b0000) !important;
+    color: #ffffff !important;
+    border: 1px solid rgba(255,255,255,0.18) !important;
+    border-radius: 8px !important;
+    font-weight: 700 !important;
+    font-size: 12px !important;
+    letter-spacing: .5px;
+    box-shadow: 0 2px 10px rgba(200,16,46,.35);
+    transition: filter .15s ease;
+}
+div[data-testid="stDownloadButton"] button:hover,
+.stDownloadButton button:hover {
+    filter: brightness(1.15);
+    border-color: rgba(255,255,255,0.4) !important;
+}
+div[data-testid="stDownloadButton"] button p,
+div[data-testid="stDownloadButton"] button div,
+.stDownloadButton button p { color: #ffffff !important; font-weight: 700 !important; }
+</style>
+"""
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -215,11 +253,10 @@ def pdf_btn(titulo="Informe", subtitulo="", kpis=None, tablas=None, notas=None,
 
         pdf_btn("Demandas Fisicas", kpis=[("Sesiones", 120)],
                 tablas=[("Matriz microciclo", df)], key="dem")
-
-    Si no se pasan datos, igual genera un PDF de portada válido.
     """
     import streamlit as st
 
+    st.markdown(_CSS_BTN, unsafe_allow_html=True)
     try:
         data = generar_pdf(titulo, subtitulo, kpis, tablas, notas, escudo)
     except Exception as e:
@@ -229,5 +266,5 @@ def pdf_btn(titulo="Informe", subtitulo="", kpis=None, tablas=None, notas=None,
     fname = f"{_clean(titulo).lower().replace(' ', '_')}_{datetime.now():%Y%m%d_%H%M}.pdf"
     c1, c2 = st.columns([5, 1])
     with c2:
-        st.download_button("PDF", data=data, file_name=fname, mime="application/pdf",
+        st.download_button("📄 PDF", data=data, file_name=fname, mime="application/pdf",
                            use_container_width=True, key=f"pdf_{key or titulo}")
