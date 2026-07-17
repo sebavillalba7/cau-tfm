@@ -162,9 +162,23 @@ def pdf_btn(titulo=None,subtitulo="",kpis=None,tablas=None,notas=None,key=None):
     sub=subtitulo or f"Club A. Union - {u.get('area','')} - {u.get('nombre','')}"
     pdf_export.pdf_btn(t,sub,kpis,tablas,notas,escudo=ASSETS/"escudo_union.png",key=key or pag)
 
+def no_data(n):
+    st.markdown(f'<div style="background:rgba(200,16,46,0.07);border:1px dashed rgba(200,16,46,0.3);border-radius:12px;padding:24px;text-align:center;color:#64748b;">⚠️ No se pudo cargar <b style="color:#f87171;">{n}</b>.<br><small>Hacé la hoja pública: Compartir → Cualquiera con el vínculo → Lector.</small></div>',unsafe_allow_html=True)
+
+def jug_col_find(df):
+    for c in df.columns:
+        if c.upper() in ["JUG","JUGADOR","NAME","PLAYER","ATLETA","NOMBRE"]: return c
+    for c in df.columns:
+        if any(x in c.lower() for x in ["jug","name","player","atleta"]): return c
+    return df.columns[0]
+
+def pos_col_find(df):
+    for c in df.columns:
+        if c.upper() in ["POS","POSICION","POSICIÓN","POSITION"]: return c
+    return None
 
 def plotly_dark(fig,h=300):
-    # Leyendas y ejes en blanco: el gris #64748b anterior era ilegible sobre el fondo azul.
+    # Leyendas y ejes en blanco: el gris #64748b era ilegible sobre el fondo azul.
     fig.update_layout(paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(0,0,0,0)",
         margin=dict(l=0,r=0,t=20,b=0),height=h,font=dict(color="#ffffff",size=12),
         legend=dict(bgcolor="rgba(8,18,38,0.75)",bordercolor="rgba(255,255,255,0.15)",
@@ -178,17 +192,14 @@ def plotly_dark(fig,h=300):
 
 
 def html_table(df, highlight_cols=None, num_format=None, max_rows=15, height=420, max_cols=14):
-    """Tabla dark con scroll. max_rows/max_cols RECORTAN de verdad los datos enviados al browser.
-    Antes max_rows solo decidia el CSS de scroll pero se renderizaban TODAS las filas: con la hoja
-    GPS completa (miles de filas x 60 columnas) eso generaba ~250 MB de HTML y Streamlit abortaba
-    con MessageSizeError."""
+    """max_rows/max_cols RECORTAN de verdad los datos enviados al browser. Antes max_rows solo
+    decidia el CSS de scroll pero se renderizaban TODAS las filas: con la hoja GPS completa
+    (miles de filas x 60 cols) eso generaba ~250 MB de HTML -> MessageSizeError."""
     if df is None or df.empty:
         st.info("Sin datos."); return
-    _total_filas, _total_cols = len(df), len(df.columns)
-    if _total_cols > max_cols:
-        df = df[list(df.columns)[:max_cols]]
-    if _total_filas > max_rows:
-        df = df.head(max_rows)
+    _tf, _tc = len(df), len(df.columns)
+    if _tc > max_cols: df = df[list(df.columns)[:max_cols]]
+    if _tf > max_rows: df = df.head(max_rows)
     highlight_cols = highlight_cols or []
     num_format = num_format or {}
     
@@ -245,9 +256,8 @@ def html_table(df, highlight_cols=None, num_format=None, max_rows=15, height=420
         </table>
         </div>
     </div>''', unsafe_allow_html=True)
-    if _total_filas > max_rows or _total_cols > max_cols:
-        st.caption(f"Mostrando {min(max_rows,_total_filas)} de {_total_filas} filas y "
-                   f"{min(max_cols,_total_cols)} de {_total_cols} columnas (vista optimizada).")
+    if _tf > max_rows or _tc > max_cols:
+        st.caption(f"Mostrando {min(max_rows,_tf)} de {_tf} filas y {min(max_cols,_tc)} de {_tc} columnas (vista optimizada).")
 
 def filtro_anio_widget(df, key):
     """Filtro multiselect de año. Retorna df filtrado."""
@@ -377,7 +387,16 @@ def render_sidebar():
 # HOME
 # ══════════════════════════════════════════════════════════════
 def pagina_home():
-    u=st.session_state.usuario; pdf_btn()
+    u=st.session_state.usuario
+    try:
+        _g=cargar_sheet("gps");_l=cargar_sheet("lesiones");_j=cargar_sheet("historial")
+        _kp=[("Jugadores",_j[jug_col_find(_j)].nunique() if not _j.empty else "-"),
+             ("Registros medicos",len(_l) if not _l.empty else "-"),
+             ("Sesiones GPS",len(_g) if not _g.empty else "-"),
+             ("Fecha",date.today().strftime("%d/%m/%Y"))]
+    except Exception:
+        _kp=None
+    pdf_btn(kpis=_kp,notas="Resumen general del plantel - Plataforma CAU Data Intelligence.")
     st.markdown(f'<div style="text-align:center;padding:24px 20px 12px;">{escudo_tag(120)}<div style="font-family:\'Bebas Neue\',sans-serif;font-size:56px;letter-spacing:6px;color:#fff;line-height:1;margin-top:12px;">CLUB A. UNIÓN</div><div style="color:#c8102e;font-size:12px;font-weight:700;letter-spacing:4px;text-transform:uppercase;margin-top:6px;">Data Intelligence · Rendimiento Físico</div></div>',unsafe_allow_html=True)
     st.markdown("---")
     cf,ct=st.columns([1,2],gap="large")
