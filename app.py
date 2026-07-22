@@ -1550,20 +1550,61 @@ META_COLS = [
     ("RIVAL",   ["RIVAL", "OPONENTE", "VS"]),
     ("RES",     ["RES", "RESULTADO"]),
     ("FECHA",   ["FECHA", "DATE"]),
+    ("MICRO",   ["MICROCICLO", "MICRO", "MC"]),
     ("POS",     ["POS", "POSICION", "POSICIÓN"]),
-    ("PG",      ["PG", "PARTIDO", "P.G", "N PARTIDO"]),
-    ("ID",      ["ID", "ID_REGISTRO", "IDREG"]),
 ]
 
 def _find_col(df, cands):
+    """Match EXACTO primero. El difuso solo con tokens de 4+ letras: antes 'ID'
+    cazaba cualquier columna que contuviera 'id' (SALIDA, MEDIDA...) y 'PG' igual,
+    por eso la tabla mostraba VOL/SUP en esas columnas."""
     up = {str(c).upper().strip(): c for c in df.columns}
     for cand in cands:
-        if cand.upper() in up: return up[cand.upper()]
-    for c in df.columns:
-        cl = str(c).upper().strip()
-        for cand in cands:
-            if cand.upper().replace(" ", "") in cl.replace(" ", ""): return c
+        if cand.upper().strip() in up: return up[cand.upper().strip()]
+    for cand in cands:
+        k = cand.upper().replace(" ", "")
+        if len(k) < 4: continue
+        for c in df.columns:
+            if k in str(c).upper().replace(" ", ""): return c
     return None
+
+def _norm_nom(serie):
+    return (serie.astype(str).str.upper().str.strip()
+            .str.normalize("NFKD").str.encode("ascii", "ignore").str.decode("ascii")
+            .str.replace(r"\s+", " ", regex=True))
+
+def enriquecer_con_gps(df, gps):
+    """GPS_LONG es la fuente autoritativa de MICROCICLO y POS.
+    Cruza por JUGADOR + FECHA y agrega/corrige esas dos columnas: la hoja de
+    partidos no trae microciclo y su POS estaba desactualizada."""
+    if df is None or df.empty or gps is None or gps.empty: return df
+    fd = _find_col(df, ["FECHA", "DATE"]); fg = _find_col(gps, ["FECHA", "DATE"])
+    if fd is None or fg is None: return df
+    mg = _find_col(gps, ["MICROCICLO", "MICRO", "MC"])
+    pg = _find_col(gps, ["POS", "POSICION", "POSICIÓN"])
+    if mg is None and pg is None: return df
+    try:
+        g = pd.DataFrame({"_j": _norm_nom(gps[jug_col_find(gps)]),
+                          "_f": pd.to_datetime(gps[fg], dayfirst=True, errors="coerce").dt.date})
+        if mg is not None: g["_MICRO"] = gps[mg].astype(str)
+        if pg is not None: g["_POS"] = gps[pg].astype(str)
+        g = g.dropna(subset=["_f"]).drop_duplicates(subset=["_j", "_f"], keep="first")
+
+        out = df.copy().reset_index(drop=True)
+        out["_j"] = _norm_nom(out[jug_col_find(out)])
+        out["_f"] = pd.to_datetime(out[fd], dayfirst=True, errors="coerce").dt.date
+        out = out.merge(g, on=["_j", "_f"], how="left")
+
+        if "_MICRO" in out.columns:
+            ok = out["_MICRO"].notna() & (out["_MICRO"].astype(str).str.lower() != "nan")
+            out["MICROCICLO"] = out["_MICRO"].where(ok, None)
+        if "_POS" in out.columns:
+            pcol = _find_col(df, ["POS", "POSICION", "POSICIÓN"])
+            ok = out["_POS"].notna() & (out["_POS"].astype(str).str.lower() != "nan")
+            out[pcol or "POS"] = out["_POS"].where(ok, out[pcol]) if pcol else out["_POS"]
+        return out.drop(columns=[c for c in ["_j", "_f", "_MICRO", "_POS"] if c in out.columns])
+    except Exception:
+        return df
 
 def construir_tabla_gps(df, meta=META_COLS, metrics=GPS_COLS):
     """Devuelve (df_normalizado, mapa_decimales) con los nombres pedidos."""
@@ -1589,6 +1630,7 @@ def pagina_control_partidos():
     pdf_btn()
     df=cargar_sheet("partidos")
     if df.empty: no_data("Control de Partidos"); return
+    df=enriquecer_con_gps(df, cargar_sheet("gps"))   # MICROCICLO + POS reales
 
     jcol=jug_col_find(df)
     dff,_=filtro_anio_widget(df,"part")
@@ -1677,6 +1719,7 @@ NORD_SPECS = [("FZA IZQ","N",["L Max Force(N)","L Max Force","FZA MAX IZQ","FZA 
               ("MASA ALCANZADA","%",["Masa Alcanzada","MASA ALCANZADA","Mass Reached"],1)]
 
 def _mcol(df):
+    if "MICROCICLO" in df.columns: return "MICROCICLO"
     for c in df.columns:
         if str(c).upper() in ["MICROCICLO","MICRO","MC","MICRO Nº"]: return c
     for c in df.columns:
@@ -1738,7 +1781,7 @@ def pagina_resumen():
     jugadores=sorted(hist[jcol].dropna().astype(str).unique().tolist())
 
     gps=cargar_sheet("gps"); part=cargar_sheet("partidos")
-    fuente = part if not part.empty else gps
+    fuente = enriquecer_con_gps(part, gps) if not part.empty else gps
 
     # ── FILTROS DE LA HOJA ────────────────────────────────────────────────
     f1,f2,f3=st.columns([2,1,2])
