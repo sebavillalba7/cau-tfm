@@ -127,8 +127,9 @@ class ReportePDF(FPDF):
                 self.cell(ancho - 6, 7, _clean(str(val))[:18], ln=2)
             self.set_y(y0 + 20)
 
-    def tabla(self, df, max_filas=28, max_cols=9):
-        """Tabla compacta. Recorta filas/columnas para que entre en A4."""
+    def tabla(self, df, max_filas=28, max_cols=18):
+        """Tabla compacta. Ajusta el tamano de fuente al numero de columnas para que
+        las matrices GPS (16+ columnas) entren completas en A4 vertical."""
         if df is None or df.empty:
             self.parrafo("Sin datos para el periodo seleccionado.")
             return
@@ -136,26 +137,31 @@ class ReportePDF(FPDF):
         cols = list(d.columns)[:max_cols]
         d = d[cols]
         ancho = 186 / len(cols)
+        n = len(cols)
+        fs_h = 6.8 if n <= 9 else (5.6 if n <= 13 else 4.6)
+        fs_b = 6.5 if n <= 9 else (5.4 if n <= 13 else 4.5)
+        trunc = 16 if n <= 9 else (11 if n <= 13 else 8)
+        self._fs_h, self._fs_b, self._trunc = fs_h, fs_b, trunc
 
-        self.set_font("Helvetica", "B", 6.8)
+        self.set_font("Helvetica", "B", fs_h)
         self.set_fill_color(*ROJO)
         self.set_text_color(*BLANCO)
         for c in cols:
-            self.cell(ancho, 6, _clean(str(c))[:16], 1, 0, "C", True)
+            self.cell(ancho, 6, _clean(str(c))[:trunc], 1, 0, "C", True)
         self.ln()
 
-        self.set_font("Helvetica", "", 6.5)
+        self.set_font("Helvetica", "", fs_b)
         self.set_text_color(*NEGRO)
         alt = True
         for _, r in d.iterrows():
             if self.get_y() > 262:
                 self.add_page()
-                self.set_font("Helvetica", "B", 6.8)
+                self.set_font("Helvetica", "B", fs_h)
                 self.set_fill_color(*ROJO); self.set_text_color(*BLANCO)
                 for c in cols:
-                    self.cell(ancho, 6, _clean(str(c))[:16], 1, 0, "C", True)
+                    self.cell(ancho, 6, _clean(str(c))[:trunc], 1, 0, "C", True)
                 self.ln()
-                self.set_font("Helvetica", "", 6.5); self.set_text_color(*NEGRO)
+                self.set_font("Helvetica", "", fs_b); self.set_text_color(*NEGRO)
             self.set_fill_color(*(245, 247, 250) if alt else (255, 255, 255))
             for c in cols:
                 v = r[c]
@@ -163,7 +169,7 @@ class ReportePDF(FPDF):
                     v = f"{v:,.1f}"
                 elif isinstance(v, pd.Timestamp):
                     v = v.strftime("%d/%m/%Y")
-                self.cell(ancho, 5, _clean(str(v))[:16], 1, 0, "C", True)
+                self.cell(ancho, 5, _clean(str(v))[:trunc], 1, 0, "C", True)
             self.ln()
             alt = not alt
         if len(df) > max_filas:
