@@ -149,18 +149,116 @@ def top_bar(logged=False,usuario=None):
     </div><div class="spacer-top"></div>
     <script>(function(){{function u(){{var n=new Date(),h=String(n.getHours()).padStart(2,'0'),m=String(n.getMinutes()).padStart(2,'0');document.querySelectorAll('.local-time').forEach(e=>e.textContent=h+':'+m);var d=String(n.getDate()).padStart(2,'0'),mo=String(n.getMonth()+1).padStart(2,'0'),y=n.getFullYear();document.querySelectorAll('.local-date').forEach(e=>e.textContent=d+'/'+mo+'/'+y);}}u();setInterval(u,10000);}})();</script>""",unsafe_allow_html=True)
 
-def pdf_btn(titulo=None,subtitulo="",kpis=None,tablas=None,notas=None,key=None):
-    """PDF real con fpdf2. El anterior usaba onclick='window.print()', que Streamlit
-    sanitiza (elimina el atributo onclick), por eso ningun boton funcionaba."""
+def _pdf_ctx():
+    return st.session_state.setdefault("_pdfc", {"kpis": [], "tablas": [], "notas": None,
+                                                 "titulo": "Informe", "sub": "", "last": None})
+
+def _pdf_title_track(body):
+    """Guarda el ultimo titulo de seccion renderizado para nombrar las tablas del PDF."""
+    try:
+        if not isinstance(body, str) or "class=" not in body: return
+        m = re.search(r'class="(?:sec-title|subsec)"[^>]*>(.*?)</div>', body, re.S)
+        if m:
+            txt = re.sub(r"<[^>]+>", "", m.group(1))
+            txt = re.sub(r"[^\w\sáéíóúÁÉÍÓÚñÑ%/·.\-]", "", txt).strip()
+            if txt: _pdf_ctx()["last"] = txt[:60]
+    except Exception:
+        pass
+
+def pdf_add_tabla(titulo, df):
+    """Registra una tabla para el PDF de la pagina actual."""
+    try:
+        if df is None or len(df) == 0: return
+        c = _pdf_ctx()
+        t = (titulo or c.get("last") or f"Detalle {len(c['tablas'])+1}")
+        if any(t == x[0] for x in c["tablas"]):
+            t = f"{t} ({len(c['tablas'])+1})"
+        c["tablas"].append((t, df.copy()))
+    except Exception:
+        pass
+
+def pdf_add_kpi(label, value):
+    try:
+        c = _pdf_ctx()
+        lab = re.sub(r"[^\w\s%/.\-áéíóúÁÉÍÓÚñÑ]", "", str(label)).strip()
+        if lab and not any(lab == k for k, _ in c["kpis"]):
+            c["kpis"].append((lab, value))
+    except Exception:
+        pass
+
+_PDF_PATCHED = False
+
+def _pdf_patch_streamlit():
+    """Intercepta st.metric / col.metric y st.markdown UNA sola vez por PROCESO
+    (no por sesion: si no, una sesion nueva volveria a envolver lo ya envuelto y
+    las metricas se registrarian duplicadas)."""
+    global _PDF_PATCHED
+    if _PDF_PATCHED: return
+    try:
+        from streamlit.delta_generator import DeltaGenerator
+        _om = DeltaGenerator.metric
+        def _metric(self, label, value, *a, **k):
+            pdf_add_kpi(label, value)
+            return _om(self, label, value, *a, **k)
+        DeltaGenerator.metric = _metric
+        _omd = DeltaGenerator.markdown
+        def _md(self, body, *a, **k):
+            _pdf_title_track(body)
+            return _omd(self, body, *a, **k)
+        DeltaGenerator.markdown = _md
+        _st_metric = st.metric
+        def _stm(label, value, *a, **k):
+            pdf_add_kpi(label, value)
+            return _st_metric(label, value, *a, **k)
+        st.metric = _stm
+        _st_md = st.markdown
+        def _stmd(body, *a, **k):
+            _pdf_title_track(body)
+            return _st_md(body, *a, **k)
+        st.markdown = _stmd
+        _PDF_PATCHED = True
+    except Exception:
+        _PDF_PATCHED = True
+
+def pdf_btn(titulo=None, subtitulo="", kpis=None, tablas=None, notas=None, key=None):
+    """Coloca un placeholder arriba de la pagina. El PDF se arma al final del render
+    (_pdf_flush) con TODAS las tablas y metricas que la pagina haya generado.
+    Antes se llamaba pdf_btn() sin datos y el PDF salia 'SIN DATOS EXPORTABLES'."""
     nombres={"home":"Inicio","historial":"Historial de Jugadores","estadisticas_medicas":"Estadisticas Medicas",
              "evaluaciones":"Evaluaciones Fisicas","riesgo_lesion":"Riesgo de Lesion",
              "demandas_fisicas":"Demandas Fisicas","control_partidos":"Control de Partidos",
              "nutricion":"Control Nutricional","resumen_individual":"Resumen Individual","admin":"Panel Admin"}
     pag=st.session_state.get("pagina","home")
-    t=titulo or nombres.get(pag,"Informe")
     u=st.session_state.get("usuario") or {}
-    sub=subtitulo or f"Club A. Union - {u.get('area','')} - {u.get('nombre','')}"
-    pdf_export.pdf_btn(t,sub,kpis,tablas,notas,escudo=ASSETS/"escudo_union.png",key=key or pag)
+    _pdf_patch_streamlit()
+    st.session_state["_pdfc"] = {
+        "kpis": list(kpis or []), "tablas": list(tablas or []), "notas": notas,
+        "titulo": titulo or nombres.get(pag,"Informe"),
+        "sub": subtitulo or f"Club A. Union - {u.get('area','')} - {u.get('nombre','')}",
+        "last": None, "key": key or pag}
+    st.session_state["_pdf_ph"] = st.empty()
+
+def _pdf_flush():
+    """Genera el PDF con lo recolectado y lo publica en el placeholder."""
+    ph = st.session_state.get("_pdf_ph")
+    c = st.session_state.get("_pdfc")
+    if ph is None or not c: return
+    try:
+        data = pdf_export.generar_pdf(c["titulo"], c["sub"], c["kpis"], c["tablas"],
+                                      c["notas"], escudo=ASSETS/"escudo_union.png")
+        fname = f"{c['titulo'].lower().replace(' ','_')}_{datetime.now():%Y%m%d_%H%M}.pdf"
+        with ph.container():
+            st.markdown(pdf_export._CSS_BTN, unsafe_allow_html=True)
+            _a, _b = st.columns([5, 1])
+            with _b:
+                st.download_button("📄 PDF", data=data, file_name=fname,
+                                   mime="application/pdf", use_container_width=True,
+                                   key=f"pdfdl_{c.get('key','p')}")
+    except Exception as e:
+        try: ph.warning(f"No se pudo generar el PDF: {e}")
+        except Exception: pass
+    finally:
+        st.session_state["_pdf_ph"] = None
 
 def no_data(n):
     st.markdown(f'<div style="background:rgba(200,16,46,0.07);border:1px dashed rgba(200,16,46,0.3);border-radius:12px;padding:24px;text-align:center;color:#64748b;">⚠️ No se pudo cargar <b style="color:#f87171;">{n}</b>.<br><small>Hacé la hoja pública: Compartir → Cualquiera con el vínculo → Lector.</small></div>',unsafe_allow_html=True)
@@ -197,6 +295,8 @@ def html_table(df, highlight_cols=None, num_format=None, max_rows=15, height=420
     (miles de filas x 60 cols) eso generaba ~250 MB de HTML -> MessageSizeError."""
     if df is None or df.empty:
         st.info("Sin datos."); return
+    try: pdf_add_tabla(None, df)
+    except Exception: pass
     _tf, _tc = len(df), len(df.columns)
     if _tc > max_cols: df = df[list(df.columns)[:max_cols]]
     if _tf > max_rows: df = df.head(max_rows)
@@ -1433,6 +1533,57 @@ def pagina_demandas():
 # ══════════════════════════════════════════════════════════════
 # CONTROL DE PARTIDOS
 # ══════════════════════════════════════════════════════════════
+# ── Resolucion flexible de columnas GPS/partidos ──────────────────────────
+GPS_COLS = [
+    ("MIN",       ["MIN", "MINUTOS", "MINS"],                                  0),
+    ("DIST TOT",  ["TOT DIST", "DIST TOT", "DISTANCIA TOTAL", "DIST TOTAL"],   0),
+    ("MTS/MIN",   ["MTS/MIN", "MTS MIN", "M/MIN"],                             1),
+    ("MTS>19",    ["MTS>19 KM/H", "MTS >19 KM/H", "MTS >19", "MTS>19"],        0),
+    ("MTS>24",    ["MTS > 24 KM/H", "MTS >24 KM/H", "MTS >24", "MTS>24"],      0),
+    ("#SPRINT",   ["#SP24", "SP24", "SPRINTS", "#SPRINT", "N SPRINT"],         0),
+    ("VEL MAX",   ["V-MAX", "VMAX", "V MAX", "VEL MAX", "VELOCIDAD MAXIMA"],   1),
+    ("ACEL",      ["ACEL", "ACELERACIONES", "ACC"],                            0),
+    ("DES",       ["DES", "DESACELERACIONES", "DEC"],                          0),
+]
+META_COLS = [
+    ("JUGADOR", ["JUGADOR", "JUG", "NOMBRE", "PLAYER", "ATLETA"]),
+    ("RIVAL",   ["RIVAL", "OPONENTE", "VS"]),
+    ("RES",     ["RES", "RESULTADO"]),
+    ("FECHA",   ["FECHA", "DATE"]),
+    ("POS",     ["POS", "POSICION", "POSICIÓN"]),
+    ("PG",      ["PG", "PARTIDO", "P.G", "N PARTIDO"]),
+    ("ID",      ["ID", "ID_REGISTRO", "IDREG"]),
+]
+
+def _find_col(df, cands):
+    up = {str(c).upper().strip(): c for c in df.columns}
+    for cand in cands:
+        if cand.upper() in up: return up[cand.upper()]
+    for c in df.columns:
+        cl = str(c).upper().strip()
+        for cand in cands:
+            if cand.upper().replace(" ", "") in cl.replace(" ", ""): return c
+    return None
+
+def construir_tabla_gps(df, meta=META_COLS, metrics=GPS_COLS):
+    """Devuelve (df_normalizado, mapa_decimales) con los nombres pedidos."""
+    out = pd.DataFrame(index=df.index)
+    dec = {}
+    for nombre, cands in meta:
+        c = _find_col(df, cands)
+        if c is not None:
+            v = df[c]
+            if nombre == "FECHA":
+                v = pd.to_datetime(v, dayfirst=True, errors="coerce").dt.strftime("%d/%m/%Y")
+            out[nombre] = v.astype(str).replace({"nan": "—", "NaT": "—"})
+    for nombre, cands, d in metrics:
+        c = _find_col(df, cands)
+        if c is not None:
+            out[nombre] = to_num_col(df[c]).round(d)
+            dec[nombre] = d
+    return out, dec
+
+
 def pagina_control_partidos():
     st.markdown('<div class="sec-title">⚽ Control de Partidos</div>',unsafe_allow_html=True)
     pdf_btn()
@@ -1441,26 +1592,143 @@ def pagina_control_partidos():
 
     jcol=jug_col_find(df)
     dff,_=filtro_anio_widget(df,"part")
+
+    rcol=_find_col(dff,["RIVAL","OPONENTE","VS"])
     fc1,fc2=st.columns(2)
-    with fc1: jsel=st.selectbox("Jugador",["Todos"]+sorted(dff[jcol].dropna().astype(str).unique().tolist()),key="part_jug")
-    if jsel!="Todos": dff=dff[dff[jcol].astype(str)==jsel]
+    with fc1:
+        jsel=st.selectbox("Jugador",["Todos"]+sorted(dff[jcol].dropna().astype(str).unique().tolist()),key="part_jug")
+    with fc2:
+        rsel=st.multiselect("Rival",sorted(dff[rcol].dropna().astype(str).unique().tolist()) if rcol else [],
+                            default=[],key="part_riv",placeholder="Todos los rivales")
+    base=dff.copy()
+    if rsel and rcol: base=base[base[rcol].astype(str).isin(rsel)]
+    dsel=base[base[jcol].astype(str)==jsel] if jsel!="Todos" else base
 
     c1,c2,c3=st.columns(3)
-    c1.metric("📋 Registros",len(dff))
-    min_col=next((c for c in dff.columns if "min" in c.lower()),None)
-    if min_col:
-        mvals=to_num_col(dff[min_col])
+    c1.metric("📋 Registros",len(dsel))
+    min_col=_find_col(dsel,["MIN","MINUTOS"])
+    if min_col is not None:
+        mvals=to_num_col(dsel[min_col])
         c2.metric("⏱️ Min. totales",int(mvals.sum()) if not mvals.isna().all() else "—")
         c3.metric("⏱️ Min. promedio",round(mvals.mean(),1) if not mvals.isna().all() else "—")
 
-    st.markdown('<div style="background:rgba(26,90,180,0.08);border:1px solid rgba(26,90,180,0.2);border-radius:12px;padding:14px;margin:12px 0;"><div style="font-size:12px;font-weight:700;color:#93c5fd;margin-bottom:4px;">🔌 API de Fútbol Argentino — Próximamente</div><div style="font-size:12px;color:#64748b;">Integración con <b style="color:#e2e8f0;">API-Football</b> para estadísticas de Liga Profesional en tiempo real.</div></div>',unsafe_allow_html=True)
-    num_p=[c for c in dff.columns if to_num_col(dff[c]).notna().sum()>len(dff)*0.3 and c not in ["AÑO","_fecha"]]
-    show_p=dff[[c for c in dff.columns if not c.startswith("_")]].reset_index(drop=True)
-    html_table(show_p, highlight_cols=num_p)
+    # ── Tabla con las variables solicitadas ──────────────────────────────
+    st.markdown('<div class="subsec">Detalle de partidos</div>',unsafe_allow_html=True)
+    tabla,_dec=construir_tabla_gps(dsel)
+    num_p=[c for c in tabla.columns if c in dict((m[0],1) for m in GPS_COLS)]
+    html_table(tabla.reset_index(drop=True), highlight_cols=num_p, max_rows=25, max_cols=18)
+
+    # ── Scatter MTS/MIN vs MTS>19 ────────────────────────────────────────
+    st.markdown('<div class="subsec">Intensidad vs. volumen de alta velocidad</div>',unsafe_allow_html=True)
+    st.caption("Eje X: MTS/MIN (intensidad) · Eje Y: MTS>19 (volumen de alta velocidad). "
+               "Cada burbuja es un partido, etiquetada con el rival y el resultado.")
+    tb_all,_ = construir_tabla_gps(base)
+    if "MTS/MIN" not in tb_all.columns or "MTS>19" not in tb_all.columns:
+        st.info("No se encontraron las columnas MTS/MIN y MTS>19 en la hoja de partidos.")
+    else:
+        sc=tb_all.dropna(subset=["MTS/MIN","MTS>19"]).copy()
+        if sc.empty:
+            st.info("Sin datos suficientes para el gráfico.")
+        else:
+            for _c in ("RIVAL","RES","JUGADOR"):
+                if _c not in sc.columns: sc[_c]="—"
+            sc["etq"]=sc["RIVAL"].astype(str)+" ("+sc["RES"].astype(str)+")"
+            sc["_sz"]=to_num_col(sc["MIN"]).fillna(30) if "MIN" in sc.columns else 30
+            fig=go.Figure()
+            if jsel!="Todos":
+                otros=sc[sc["JUGADOR"].astype(str)!=jsel]
+                propio=sc[sc["JUGADOR"].astype(str)==jsel]
+                if not otros.empty:
+                    fig.add_trace(go.Scatter(x=otros["MTS/MIN"],y=otros["MTS>19"],mode="markers",
+                        name="Resto del plantel",marker=dict(size=9,color="rgba(148,163,184,0.45)"),
+                        hovertext=otros["JUGADOR"].astype(str)+" · "+otros["etq"],hoverinfo="text+x+y"))
+                if not propio.empty:
+                    fig.add_trace(go.Scatter(x=propio["MTS/MIN"],y=propio["MTS>19"],mode="markers+text",
+                        name=jsel,text=propio["etq"],textposition="top center",
+                        textfont=dict(color="#ffffff",size=10),
+                        marker=dict(size=propio["_sz"],sizemode="area",
+                                    sizeref=2.*propio["_sz"].max()/(38.**2) if propio["_sz"].max()>0 else 1,
+                                    sizemin=8,color="#c8102e",line=dict(color="#fff",width=1)),
+                        hovertext=propio["etq"],hoverinfo="text+x+y"))
+                    fig.add_vline(x=float(sc["MTS/MIN"].mean()),line_dash="dot",line_color="rgba(255,255,255,.35)")
+                    fig.add_hline(y=float(sc["MTS>19"].mean()),line_dash="dot",line_color="rgba(255,255,255,.35)")
+            else:
+                fig.add_trace(go.Scatter(x=sc["MTS/MIN"],y=sc["MTS>19"],mode="markers",
+                    name="Partidos",marker=dict(size=10,color="#c8102e",opacity=.75,
+                                                line=dict(color="#fff",width=.5)),
+                    hovertext=sc["JUGADOR"].astype(str)+" · "+sc["etq"],hoverinfo="text+x+y"))
+                fig.add_vline(x=float(sc["MTS/MIN"].mean()),line_dash="dot",line_color="rgba(255,255,255,.35)")
+                fig.add_hline(y=float(sc["MTS>19"].mean()),line_dash="dot",line_color="rgba(255,255,255,.35)")
+            fig.update_xaxes(title_text="MTS/MIN (intensidad)")
+            fig.update_yaxes(title_text="MTS>19 (volumen alta velocidad)")
+            plotly_dark(fig,430)
+            st.plotly_chart(fig,use_container_width=True)
 
 # ══════════════════════════════════════════════════════════════
 # RESUMEN INDIVIDUAL
 # ══════════════════════════════════════════════════════════════
+# ── Helpers Resumen Individual ────────────────────────────────────────────
+CMJ_SPECS = [("ALTURA","cm",["Jump Height (Imp-Mom)[cm]","Jump Height","ALTURA","ALTURAcm"],1),
+             ("RSI-M","m/s",["RSI-modified[m/s]","RSI-modified","RSI-M","RSI"],2),
+             ("ECC PP","W/kg",["Eccentric Peak Power/BM[W/kg]","Eccentric Peak Power","ECC PP"],1)]
+NORD_SPECS = [("FZA IZQ","N",["L Max Force(N)","L Max Force","FZA MAX IZQ","FZA IZQ"],0),
+              ("FZA DER","N",["R Max Force(N)","R Max Force","FZA MAX DER","FZA DER"],0),
+              ("DIF %","%",["Max Imbalance(%)","Max Imbalance","DIF %","ASIMETRIA"],1),
+              ("MASA ALCANZADA","%",["Masa Alcanzada","MASA ALCANZADA","Mass Reached"],1)]
+
+def _mcol(df):
+    for c in df.columns:
+        if str(c).upper() in ["MICROCICLO","MICRO","MC","MICRO Nº"]: return c
+    for c in df.columns:
+        if "micro" in str(c).lower(): return c
+    return None
+
+def _sub_jug(df, jsel):
+    if df is None or df.empty: return pd.DataFrame()
+    jc = jug_col_find(df)
+    n = lambda x: str(x).upper().strip()
+    return df[df[jc].astype(str).map(n) == n(jsel)]
+
+def _cards(df, specs, cols_por_fila=4, modo="max"):
+    """Tarjetas: valor principal = max del jugador; abajo el promedio."""
+    if df.empty: st.info("Sin registros."); return
+    vals=[]
+    for lab,uni,cands,dec in specs:
+        c=_find_col(df,cands)
+        if c is None: continue
+        v=to_num_col(df[c]).dropna()
+        if v.empty: continue
+        vals.append((lab,uni,round(v.max(),dec),round(v.mean(),dec)))
+    if not vals: st.info("No se encontraron las columnas esperadas."); return
+    for i in range(0,len(vals),cols_por_fila):
+        fila=vals[i:i+cols_por_fila]; cs=st.columns(len(fila))
+        for col,(lab,uni,mx,pr) in zip(cs,fila):
+            col.metric(f"{lab} ({uni})", mx, help=f"Promedio: {pr}")
+            col.caption(f"PROM · {pr}")
+
+def _matriz_micros(dfj, n_micros=10):
+    """Sumatoria por microciclo; VEL MAX = maximo, MTS/MIN = promedio."""
+    mc=_mcol(dfj)
+    if mc is None: return pd.DataFrame()
+    t,_=construir_tabla_gps(dfj)
+    t["MICRO"]=dfj[mc].astype(str).values
+    _fc=_find_col(dfj,["FECHA","DATE"])
+    if _fc is not None:
+        t["_ord"]=pd.to_datetime(dfj[_fc],dayfirst=True,errors="coerce").values
+    agg={}
+    for nombre,_c,_d in GPS_COLS:
+        if nombre not in t.columns: continue
+        agg[nombre]="max" if nombre=="VEL MAX" else ("mean" if nombre=="MTS/MIN" else "sum")
+    if not agg: return pd.DataFrame()
+    g=t.groupby("MICRO").agg(agg).round(1)
+    g.insert(0,"SES",t.groupby("MICRO").size())
+    if "_ord" in t.columns:
+        orden=t.groupby("MICRO")["_ord"].max().sort_values(ascending=False)
+        g=g.reindex(orden.index)
+    else:
+        g=g.iloc[::-1]
+    return g.head(n_micros).reset_index()
+
 def pagina_resumen():
     st.markdown('<div class="sec-title">📄 Resumen Individual</div>',unsafe_allow_html=True)
     pdf_btn()
@@ -1468,52 +1736,130 @@ def pagina_resumen():
     if hist.empty: no_data("Historial"); return
     jcol=jug_col_find(hist)
     jugadores=sorted(hist[jcol].dropna().astype(str).unique().tolist())
-    c1,c2=st.columns([2,1])
-    with c1: jsel=st.selectbox("Jugador",jugadores,key="res_jug")
-    with c2: secs=st.multiselect("Incluir",["GPS","CMJ","Nórdico","Lesiones","VBT"],default=["GPS","CMJ","Lesiones"],key="res_secs")
 
-    row_df=hist[hist[jcol].astype(str)==jsel]
-    if len(row_df)>0:
-        row=row_df.iloc[0]
-        pos_col=pos_col_find(hist)
-        edad_col=next((c for c in hist.columns if "edad" in c.lower()),None)
-        nacio_col=next((c for c in hist.columns if "nacion" in c.lower() or "pais" in c.lower()),None)
-        foto_col=next((c for c in hist.columns if "foto" in c.lower() or "url" in c.lower()),None)
-        pos=str(row[pos_col]) if pos_col else "—"
-        edad=str(row[edad_col]) if edad_col else "—"
-        nacio=str(row[nacio_col]) if nacio_col else "—"
-        foto_url=str(row[foto_col]) if foto_col else "nan"
-        avatar=f'<img src="{foto_url}" style="width:90px;height:90px;border-radius:50%;object-fit:cover;border:3px solid rgba(200,16,46,.5);">' if foto_url.startswith("http") else '<div style="width:90px;height:90px;border-radius:50%;background:rgba(200,16,46,.15);display:flex;align-items:center;justify-content:center;font-size:48px;">👤</div>'
-        st.markdown(f'<div style="background:rgba(8,18,38,.95);border:1px solid rgba(200,16,46,.25);border-radius:20px;padding:24px;margin:12px 0;display:flex;align-items:center;gap:20px;">{avatar}<div><div style="font-family:\'Bebas Neue\',sans-serif;font-size:32px;letter-spacing:2px;color:#fff;">{jsel}</div><div style="margin-top:8px;"><span class="chip">{pos}</span><span class="chip chip-blue">{nacio}</span><span class="chip chip-green">Edad: {edad}</span></div></div></div>',unsafe_allow_html=True)
+    gps=cargar_sheet("gps"); part=cargar_sheet("partidos")
+    fuente = part if not part.empty else gps
 
-    def mostrar_sec(key,label):
-        d=cargar_sheet(key)
-        if d.empty: return
-        jc=jug_col_find(d)
-        ds=d[d[jc].astype(str).str.lower()==jsel.lower()]
-        if ds.empty: st.info(f"Sin datos de {label}."); return
-        num_cols=[c for c in ds.columns if to_num_col(ds[c]).notna().sum()>len(ds)*0.2 and c not in ["AÑO","_fecha"]]
-        cs=st.columns(min(4,len(num_cols)))
-        for i,col in enumerate(num_cols[:4]):
-            vals=to_num_col(ds[col]).dropna()
-            cs[i].metric(col[:20],round(vals.mean(),2) if len(vals)>0 else "—")
+    # ── FILTROS DE LA HOJA ────────────────────────────────────────────────
+    f1,f2,f3=st.columns([2,1,2])
+    with f1: jsel=st.selectbox("Jugador",jugadores,key="res_jug")
+    with f2:
+        anios=sorted([int(a) for a in fuente.get("AÑO",pd.Series(dtype=float)).dropna().unique()],reverse=True) if "AÑO" in fuente.columns else []
+        asel=st.multiselect("Año",[str(a) for a in anios],default=[str(anios[0])] if anios else [],key="res_anio",placeholder="Todos")
+    with f3:
+        incluir=st.multiselect("Qué incluir",["GPS","CMJ","Nórdico","VBT","Historial médico","Nutrición"],
+                               default=["GPS","CMJ","Nórdico","Historial médico"],key="res_inc")
 
-    if "GPS" in secs: st.markdown('<div class="subsec">📡 GPS</div>',unsafe_allow_html=True); mostrar_sec("gps","GPS")
-    if "CMJ" in secs: st.markdown('<div class="subsec">🦵 CMJ</div>',unsafe_allow_html=True); mostrar_sec("cmj","CMJ")
-    if "Nórdico" in secs: st.markdown('<div class="subsec">💪 Nórdico</div>',unsafe_allow_html=True); mostrar_sec("nordico","Nórdico")
-    if "VBT" in secs: st.markdown('<div class="subsec">⚡ VBT</div>',unsafe_allow_html=True); mostrar_sec("vbt","VBT")
-    if "Lesiones" in secs:
+    dj=_sub_jug(fuente,jsel)
+    if asel and "AÑO" in dj.columns: dj=dj[dj["AÑO"].astype(str).isin(asel)]
+
+    g1,g2,g3=st.columns(3)
+    mc=_mcol(dj); rc=_find_col(dj,["RIVAL","OPONENTE"]); refc=_find_col(dj,["REF","LIGA","TORNEO","COMPETENCIA"])
+    with g1:
+        msel=st.multiselect("Microciclo",sorted(dj[mc].dropna().astype(str).unique().tolist()) if mc else [],
+                            default=[],key="res_mic",placeholder="Todos")
+    with g2:
+        rsel=st.multiselect("Rival",sorted(dj[rc].dropna().astype(str).unique().tolist()) if rc else [],
+                            default=[],key="res_riv",placeholder="Todos")
+    with g3:
+        refsel=st.multiselect("Ref. (liga)",sorted(dj[refc].dropna().astype(str).unique().tolist()) if refc else [],
+                              default=[],key="res_ref",placeholder="Todas")
+    if msel and mc: dj=dj[dj[mc].astype(str).isin(msel)]
+    if rsel and rc: dj=dj[dj[rc].astype(str).isin(rsel)]
+    if refsel and refc: dj=dj[dj[refc].astype(str).isin(refsel)]
+
+    fcol=_find_col(dj,["FECHA","DATE"])
+    if fcol is not None:
+        fechas=pd.to_datetime(dj[fcol],dayfirst=True,errors="coerce").dropna()
+        if not fechas.empty:
+            d1,d2=st.columns(2)
+            with d1: desde=st.date_input("Desde",fechas.min().date(),key="res_d1")
+            with d2: hasta=st.date_input("Hasta",fechas.max().date(),key="res_d2")
+            mask=pd.to_datetime(dj[fcol],dayfirst=True,errors="coerce")
+            dj=dj[(mask.dt.date>=desde)&(mask.dt.date<=hasta)]
+
+    st.markdown(f'<div style="background:rgba(8,18,38,.9);border:1px solid rgba(200,16,46,.25);border-radius:14px;padding:14px 18px;margin:10px 0;"><span style="font-family:\'Bebas Neue\',sans-serif;font-size:26px;letter-spacing:2px;color:#fff;">{jsel}</span><span style="color:#94a3b8;font-size:12px;margin-left:12px;">{len(dj)} sesiones en el período</span></div>',unsafe_allow_html=True)
+
+    # ── GPS ───────────────────────────────────────────────────────────────
+    if "GPS" in incluir:
+        st.markdown('<div class="subsec">📡 GPS · Máximos y promedios</div>',unsafe_allow_html=True)
+        _cards(dj,[(n,("m" if "MTS" in n or "DIST" in n else ("min" if n=="MIN" else ("km/h" if n=="VEL MAX" else ("m/min" if n=="MTS/MIN" else "n")))),c,d)
+                   for n,c,d in GPS_COLS if n in ["MIN","DIST TOT","MTS/MIN","MTS>19","MTS>24","#SPRINT","VEL MAX"]],
+               cols_por_fila=4)
+
+        st.markdown('<div class="subsec">Matriz · últimos 10 microciclos</div>',unsafe_allow_html=True)
+        st.caption("Sumatoria por microciclo · VEL MAX = máximo registrado · MTS/MIN = promedio.")
+        mm=_matriz_micros(dj,10)
+        if mm.empty: st.info("No se encontró columna de microciclo en la hoja.")
+        else: html_table(mm,highlight_cols=[c for c in mm.columns if c not in ["MICRO","SES"]],max_rows=12,max_cols=14)
+
+        st.markdown('<div class="subsec">Matriz · partidos jugados</div>',unsafe_allow_html=True)
+        tp,_=construir_tabla_gps(dj)
+        if "MIN" in tp.columns: tp=tp[to_num_col(tp["MIN"]).fillna(0)>0]
+        html_table(tp.reset_index(drop=True),
+                   highlight_cols=[n for n,_c,_d in GPS_COLS if n in tp.columns],max_rows=20,max_cols=18)
+
+        st.markdown('<div class="subsec">Dispersión de partidos · MTS/MIN vs MTS>19</div>',unsafe_allow_html=True)
+        if {"MTS/MIN","MTS>19"}.issubset(tp.columns):
+            sc=tp.dropna(subset=["MTS/MIN","MTS>19"]).copy()
+            if sc.empty: st.info("Sin datos suficientes.")
+            else:
+                for _c in ("RIVAL","RES"):
+                    if _c not in sc.columns: sc[_c]="—"
+                sc["etq"]=sc["RIVAL"].astype(str)+" ("+sc["RES"].astype(str)+")"
+                fig=go.Figure(go.Scatter(x=sc["MTS/MIN"],y=sc["MTS>19"],mode="markers+text",
+                    text=sc["etq"],textposition="top center",textfont=dict(color="#e2e8f0",size=10),
+                    marker=dict(size=13,color="#c8102e",line=dict(color="#fff",width=1)),
+                    hovertext=sc["etq"],hoverinfo="text+x+y"))
+                fig.add_vline(x=float(sc["MTS/MIN"].mean()),line_dash="dot",line_color="rgba(255,255,255,.35)")
+                fig.add_hline(y=float(sc["MTS>19"].mean()),line_dash="dot",line_color="rgba(255,255,255,.35)")
+                fig.update_xaxes(title_text="MTS/MIN (intensidad)")
+                fig.update_yaxes(title_text="MTS>19 (volumen alta velocidad)")
+                plotly_dark(fig,400); st.plotly_chart(fig,use_container_width=True)
+        else:
+            st.info("No se encontraron MTS/MIN y MTS>19.")
+
+    # ── CMJ / NORDICO / VBT ───────────────────────────────────────────────
+    if "CMJ" in incluir:
+        st.markdown('<div class="subsec">🦵 CMJ · Salto contramovimiento</div>',unsafe_allow_html=True)
+        dc=_sub_jug(cargar_sheet("cmj"),jsel)
+        _cards(dc,CMJ_SPECS,3)
+        if not dc.empty:
+            html_table(dc[[c for c in dc.columns if not str(c).startswith("_")]].reset_index(drop=True),max_rows=10)
+    if "Nórdico" in incluir:
+        st.markdown('<div class="subsec">💪 Nórdico · Fuerza isquiosural</div>',unsafe_allow_html=True)
+        dn=_sub_jug(cargar_sheet("nordico"),jsel)
+        _cards(dn,NORD_SPECS,4)
+        if not dn.empty:
+            html_table(dn[[c for c in dn.columns if not str(c).startswith("_")]].reset_index(drop=True),max_rows=10)
+    if "VBT" in incluir:
+        st.markdown('<div class="subsec">⚡ VBT</div>',unsafe_allow_html=True)
+        dv=_sub_jug(cargar_sheet("vbt"),jsel)
+        if dv.empty: st.info("Sin registros de VBT.")
+        else:
+            numv=[c for c in dv.columns if to_num_col(dv[c]).notna().sum()>len(dv)*0.3 and c not in ["AÑO","_fecha"]]
+            _cards(dv,[(str(c)[:14],"",[c],1) for c in numv[:4]],4)
+            html_table(dv[[c for c in dv.columns if not str(c).startswith("_")]].reset_index(drop=True),max_rows=10)
+
+    # ── HISTORIAL MEDICO (matriz con colores) ─────────────────────────────
+    if "Historial médico" in incluir:
         st.markdown('<div class="subsec">🏥 Historial médico</div>',unsafe_allow_html=True)
-        les=cargar_sheet("lesiones")
-        if not les.empty:
-            jc=jug_col_find(les)
-            dl=les[les[jc].astype(str).str.lower()==jsel.lower()]
-            if not dl.empty: st.dataframe(dl,use_container_width=True,hide_index=True)
-            else: st.info(f"Sin registros médicos para {jsel}.")
+        dl=_sub_jug(cargar_sheet("lesiones"),jsel)
+        if dl.empty: st.success(f"Sin lesiones registradas para {jsel} en la base.")
+        else:
+            show=dl[[c for c in dl.columns if not str(c).startswith("_")]].reset_index(drop=True)
+            numl=[c for c in show.columns if to_num_col(show[c]).notna().sum()>len(show)*0.3 and c!="AÑO"]
+            html_table(show,highlight_cols=numl,max_rows=20,max_cols=14)
 
-# ══════════════════════════════════════════════════════════════
-# ADMIN
-# ══════════════════════════════════════════════════════════════
+    if "Nutrición" in incluir:
+        st.markdown('<div class="subsec">🥗 Control nutricional</div>',unsafe_allow_html=True)
+        dnu=_sub_jug(cargar_sheet("nutricion"),jsel)
+        if dnu.empty: st.info("Sin registros de nutrición.")
+        else:
+            numn=[c for c in dnu.columns if to_num_col(dnu[c]).notna().sum()>len(dnu)*0.3 and c not in ["AÑO","_fecha"]]
+            _cards(dnu,[(str(c)[:14],"",[c],1) for c in numn[:4]],4)
+            html_table(dnu[[c for c in dnu.columns if not str(c).startswith("_")]].reset_index(drop=True),max_rows=15)
+
 def pagina_admin():
     st.markdown('<div class="sec-title">🔧 Panel de Administración</div>',unsafe_allow_html=True)
     pendientes={k:d for k,d in st.session_state.usuarios_extra.items() if not d.get("aprobado")}
@@ -1737,6 +2083,7 @@ def render_pagina():
     u=st.session_state.usuario;p=st.session_state.pagina
     if not tiene_acceso(u,p) and p!="admin": st.error("🚫 No tenés acceso.");return
     {"home":pagina_home,"historial":pagina_historial,"estadisticas_medicas":pagina_estadisticas_medicas,"evaluaciones":pagina_evaluaciones,"riesgo_lesion":lambda:mr.pagina_riesgo_lesion(cargar_sheet),"demandas_fisicas":lambda:dfx.pagina_demandas_fisicas(cargar_sheet,pdf_btn),"control_partidos":pagina_control_partidos,"nutricion":pagina_nutricion,"resumen_individual":pagina_resumen,"admin":pagina_admin}.get(p,lambda:st.error("Página no encontrada"))()
+    _pdf_flush()
 
 if not st.session_state.logged:
     pagina_login()
