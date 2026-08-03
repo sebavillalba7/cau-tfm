@@ -16,6 +16,8 @@
 import numpy as np
 import pandas as pd
 
+__version__ = "2026.07.17"
+
 # ─────────────────────────────────────────────────────────────────────────
 #  1. LOCALIZACIÓN ROBUSTA DE COLUMNAS  (tolera variaciones de encabezado)
 # ─────────────────────────────────────────────────────────────────────────
