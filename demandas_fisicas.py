@@ -25,6 +25,8 @@
 import numpy as np
 import pandas as pd
 
+__version__ = "2026.07.17"
+
 # ─────────────────────────────────────────────────────────────────────────
 #  MÉTRICAS  ·  (clave lógica, etiqueta, candidatos de encabezado real)
 # ─────────────────────────────────────────────────────────────────────────
@@ -516,18 +518,29 @@ def pagina_demandas_fisicas(cargar_sheet, pdf_btn=None):
                     rgb = (74, 222, 128) if 0.8 <= vv < 1.3 else ((249, 115, 22) if vv >= 1.3 else (96, 165, 250))
                     kp.append((f"EWMA {labs[k]}", f"{vv:.2f}", rgb))
 
-            pdf_btn("Demandas Fisicas - Microciclo",
-                    subtitulo=f"Microciclo {msel} - Temporada {tsel} - Club A. Union",
-                    kpis=kp, matriz=exp, estilos=est,
-                    matriz_titulo="Microciclo vs % de max de partido individual",
-                    orientacion="L",
-                    notas=(f"% IND = carga acumulada del microciclo / referencia x 100. "
-                           f"BASE IND: referencia = MAXIMO de los ultimos {n_part} partidos oficiales "
-                           f"del jugador con mas de {min_ref} minutos. BASE POS: el jugador no tiene partidos "
-                           f"que califiquen y se compara contra el promedio de su posicion. "
-                           f"Sesiones excluidas del calculo: {', '.join(excl) if excl else 'ninguna'}. "
-                           f"EWMA = ratio agudo(7d):cronico(28d) exponencial (Williams et al., 2017)."),
-                    key="dem1")
+            _nota=(f"% IND = carga acumulada del microciclo / referencia x 100. "
+                   f"BASE IND: referencia = MAXIMO de los ultimos {n_part} partidos oficiales "
+                   f"del jugador con mas de {min_ref} minutos. BASE POS: el jugador no tiene partidos "
+                   f"que califiquen y se compara contra el promedio de su posicion. "
+                   f"Sesiones excluidas del calculo: {', '.join(excl) if excl else 'ninguna'}. "
+                   f"EWMA = ratio agudo(7d):cronico(28d) exponencial (Williams et al., 2017).")
+            _kw=dict(subtitulo=f"Microciclo {msel} - Temporada {tsel} - Club A. Union",
+                     kpis=kp, matriz=exp, estilos=est,
+                     matriz_titulo="Microciclo vs % de max de partido individual",
+                     orientacion="L", notas=_nota, key="dem1")
+            try:
+                pdf_btn("Demandas Fisicas - Microciclo", **_kw)
+            except TypeError:
+                # pdf_btn viejo (sin matriz/orientacion): degradar a export simple con la matriz como tabla.
+                import streamlit as _st
+                _st.info("El PDF avanzado requiere actualizar pdf_export.py y app.py. "
+                         "Exporto la matriz en formato simple mientras tanto.")
+                try:
+                    pdf_btn("Demandas Fisicas - Microciclo", subtitulo=_kw["subtitulo"],
+                            kpis=kp, tablas=[("Microciclo vs % de max de partido individual", exp)],
+                            notas=_nota, key="dem1")
+                except TypeError:
+                    pdf_btn()  # ultimo recurso: firma original sin argumentos
 
     # ═════════════════════════════════════════════════════════════════
     #  TAB 2 — EWMA GRUPAL POR VARIABLE
