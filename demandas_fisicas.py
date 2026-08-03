@@ -48,6 +48,31 @@ COMPARABLES = ["td", "m19", "m24", "sp24", "vi85", "acel", "des"]
 EWMA_METRICAS = ["td", "m19", "m24", "vi85", "acel", "des"]
 
 
+# Sesiones que NO cuentan para carga del plantel principal ni para el EWMA.
+SES_EXCLUIR_DEFAULT = ["RTT", "ENT RVA", "RESERVA", "PAR RVA", "ENT DIF", "HIIT"]
+
+
+def _parse_fecha(serie):
+    """
+    Parseo tolerante. Antes se usaba solo dayfirst=True y las filas que no
+    parseaban se borraban con dropna -> se perdian sesiones en silencio
+    (por eso el conteo de N SES no coincidia con Power BI).
+    """
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        f = pd.to_datetime(serie, dayfirst=True, errors="coerce")
+        if f.isna().any():
+            for kw in ({"format": "mixed", "dayfirst": True}, {"dayfirst": False}):
+                try:
+                    alt = pd.to_datetime(serie, errors="coerce", **kw)
+                except Exception:
+                    continue
+                if alt.notna().sum() > f.notna().sum():
+                    f = alt
+    return f
+
+
 def _find_exact(df, candidatos):
     """Match exacto (case-insensitive) — evita agarrar '#SP24 SEM' o 'MTS/MIN' por 'MIN'."""
     up = {str(c).upper().strip(): c for c in df.columns}
@@ -90,7 +115,7 @@ def preparar(df):
         return None, m
     d = pd.DataFrame()
     d["_jug"] = df[m["jugador"]].astype(str).str.strip()
-    d["_fecha"] = pd.to_datetime(df[m["fecha"]], dayfirst=True, errors="coerce")
+    d["_fecha"] = _parse_fecha(df[m["fecha"]])
     for campo in ["pos", "micro", "semana", "ses", "temp", "ref", "ent"]:
         d["_" + campo] = df[m[campo]].astype(str).str.strip() if m.get(campo) else ""
     for k, _, _ in METRICAS:
@@ -105,7 +130,11 @@ def preparar(df):
             d[k] = v
         else:
             d[k] = np.nan
-    d = d.dropna(subset=["_fecha"])
+    # NO se descartan filas con fecha invalida: la matriz agrupa por jugador y no
+    # necesita la fecha. Solo EWMA y la referencia de partido la requieren, y ahi
+    # se filtra localmente. El dropna global perdia sesiones en silencio.
+    d.attrs["fechas_invalidas"] = int(d["_fecha"].isna().sum())
+    d.attrs["filas_totales"] = len(d)
     return d, m
 
 
@@ -118,43 +147,76 @@ def es_partido(serie_ses):
 # ─────────────────────────────────────────────────────────────────────────
 #  REFERENCIA INDIVIDUAL DE PARTIDO  (últimos N partidos con > MIN_REF min)
 # ─────────────────────────────────────────────────────────────────────────
-def referencia_partido(d, n_partidos=5, min_ref=70):
+def referencia_partido(d, n_partidos=5, min_ref=70, metrica_valida="m19"):
     """
-    Promedio por jugador de sus últimos `n_partidos` partidos oficiales
-    con más de `min_ref` minutos. Devuelve DataFrame indexado por jugador.
+    Replica el DAX del Power BI. Devuelve (ref_ind, ref_pos):
+
+      ref_ind : MAXIMO por JUGADOR sobre sus ultimos `n_partidos` partidos
+                oficiales con >= `min_ref` minutos y con la metrica de referencia
+                no vacia  ->  MAXX(Ultimos5Partidos, ...).
+      ref_pos : PROMEDIO por POSICION sobre TODOS los partidos validos de esa
+                posicion  ->  fallback PromedioPorPosicion (PROM_JUG).
+
+    Diferencias que estaban causando los '—':
+      · el DAX usa MAX (no promedio) para la referencia individual;
+      · el DAX ordena por fecha pero NO descarta partidos sin fecha: aca antes
+        el dropna(_fecha) borraba partidos y dejaba jugadores sin referencia;
+      · el promedio posicional se calcula sobre TODOS los partidos validos de la
+        posicion, no solo los ultimos 5 de cada jugador.
     """
-    p = d[es_partido(d["_ses"]) & (d["min"] > min_ref)].copy()
-    if p.empty:
-        return pd.DataFrame()
-    p = p.sort_values("_fecha")
-    ult = p.groupby("_jug").tail(n_partidos)
     cols = [k for k, _, _ in METRICAS]
-    ref = ult.groupby("_jug")[cols].mean()
-    ref["_n_ref"] = ult.groupby("_jug").size()
-    return ref
+    p = d[es_partido(d["_ses"]) & (d["min"] >= min_ref)].copy()
+    # Exigir metrica de referencia no vacia (NOT ISBLANK del DAX).
+    if metrica_valida in p.columns:
+        p = p[p[metrica_valida].notna()]
+    if p.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    # Orden por fecha DESC para el TOPN; los sin fecha van al final pero NO se descartan.
+    p["_orden"] = p["_fecha"]
+    p = p.sort_values("_orden", ascending=False, na_position="last")
+
+    # ── ref_ind: MAX de los ultimos n_partidos por jugador ───────────
+    ult = p.groupby("_jug").head(n_partidos)
+    ref_ind = ult.groupby("_jug")[cols].max()
+    ref_ind["_n_ref"] = ult.groupby("_jug").size()
+
+    # ── ref_pos: PROMEDIO por posicion sobre TODOS los partidos validos ─
+    ref_pos = p.groupby("_pos")[cols].mean()
+    ref_pos["_n_ref"] = p.groupby("_pos").size()
+    return ref_ind, ref_pos
 
 
-def matriz_microciclo(d, ref, n_partidos=5, min_ref=70):
+def matriz_microciclo(d, ref_ind, ref_pos):
     """
-    Carga acumulada del período filtrado por jugador + % vs referencia individual.
+    Carga acumulada del periodo filtrado por jugador + % vs su referencia.
+    La posicion usada es la del MICROCICLO ACTUAL: si un jugador cambia de puesto,
+    cambia su referencia posicional.
     """
     if d.empty:
         return pd.DataFrame()
     cols = [k for k, _, _ in METRICAS]
-    agg = {}
-    for k in cols:
-        agg[k] = "sum" if k in ACUMULABLES else ("max" if k == "vmax" else "mean")
+    agg = {k: ("sum" if k in ACUMULABLES else ("max" if k == "vmax" else "mean")) for k in cols}
     g = d.groupby("_jug").agg(agg)
     g["_n_ses"] = d.groupby("_jug").size()
-    g["_pos"] = d.groupby("_jug")["_pos"].agg(lambda s: s.mode().iloc[0] if len(s.mode()) else "")
+    g["_pos"] = d.groupby("_jug")["_pos"].agg(lambda x: x.mode().iloc[0] if len(x.mode()) else "")
 
+    origen, bases = [], {k: [] for k in COMPARABLES}
+    for jug, pos in zip(g.index, g["_pos"]):
+        usa_ind = (not ref_ind.empty) and (jug in ref_ind.index)
+        usa_pos = (not ref_pos.empty) and (pos in ref_pos.index)
+        origen.append("IND" if usa_ind else ("POS" if usa_pos else "-"))
+        for k in COMPARABLES:
+            if usa_ind:
+                bases[k].append(ref_ind.loc[jug, k])
+            elif usa_pos:
+                bases[k].append(ref_pos.loc[pos, k])
+            else:
+                bases[k].append(np.nan)
+    g["_base"] = origen
     for k in COMPARABLES:
-        if not ref.empty and k in ref.columns:
-            base = ref[k].reindex(g.index)
-            g[f"pct_{k}"] = (g[k] / base.replace(0, np.nan) * 100).round(0)
-        else:
-            g[f"pct_{k}"] = np.nan
-    g["_n_ref"] = ref["_n_ref"].reindex(g.index) if not ref.empty else np.nan
+        b = pd.Series(bases[k], index=g.index).replace(0, np.nan)
+        g[f"pct_{k}"] = (g[k] / b * 100).round(0)
     return g.reset_index()
 
 
@@ -264,6 +326,18 @@ def pagina_demandas_fisicas(cargar_sheet, pdf_btn=None):
     if d is None or d.empty:
         st.error("No se encontraron las columnas JUGADOR / FECHA en la hoja GPS."); return
 
+    # ── Exclusion de sesiones que no son del plantel principal ───────
+    ses_todas = sorted([x for x in d["_ses"].unique() if x and x != "nan"])
+    pre = [x for x in ses_todas if x.upper().strip() in [e.upper() for e in SES_EXCLUIR_DEFAULT]]
+    with st.expander("⚙️ Sesiones excluidas del cálculo  ·  " + (", ".join(pre) if pre else "ninguna detectada"),
+                     expanded=False):
+        st.caption("Estas sesiones no cuentan para los promedios ni para el EWMA "
+                   "(no son carga del plantel principal).")
+        excl = st.multiselect("Excluir", ses_todas, default=pre, key="dem_excl")
+    d = d[~d["_ses"].isin(excl)] if excl else d
+    if d.empty:
+        st.warning("Todas las sesiones quedaron excluidas."); return
+
     t1, t2, t3 = st.tabs(["📊 Microciclo vs Partido", "📈 EWMA grupal", "👤 EWMA individual"])
 
     # ═════════════════════════════════════════════════════════════════
@@ -283,22 +357,32 @@ def pagina_demandas_fisicas(cargar_sheet, pdf_btn=None):
             msel = st.selectbox("Microciclo", mics, index=1 if len(mics) > 1 else 0, key="dem_mic")
             if msel != "Todos": dff = dff[dff["_micro"] == msel]
         with f3:
-            poss = ["Todas"] + sorted([x for x in dff["_pos"].unique() if x and x != "nan"])
-            psel = st.multiselect("Posición", poss[1:], default=[], key="dem_pos")
-            if psel: dff = dff[dff["_pos"].isin(psel)]
+            sems = ["Todas"] + sorted([x for x in dff["_semana"].unique() if x and x != "nan"],
+                                      key=lambda z: (len(z), z))
+            semsel = st.selectbox("Semana", sems, key="dem_sem")
+            if semsel != "Todas": dff = dff[dff["_semana"] == semsel]
         with f4:
-            sess = ["Todas"] + sorted([x for x in dff["_ses"].unique() if x and x != "nan"])
-            ssel = st.multiselect("Sesión", sess[1:], default=[], key="dem_ses")
-            if ssel: dff = dff[dff["_ses"].isin(ssel)]
+            poss = sorted([x for x in dff["_pos"].unique() if x and x != "nan"])
+            psel = st.multiselect("Posición", poss, default=[], key="dem_pos")
+            if psel: dff = dff[dff["_pos"].isin(psel)]
 
-        g1, g2, g3 = st.columns(3)
+        g1, g2, g3, g4 = st.columns(4)
         with g1:
-            n_part = st.slider("Partidos de referencia", 3, 10, 5, key="dem_npart",
-                               help="Cuántos partidos oficiales recientes definen la demanda de competencia de cada jugador.")
+            # FILTRO FECHA (faltaba)
+            val = dff["_fecha"].dropna()
+            if not val.empty:
+                fmin, fmax = val.min().date(), val.max().date()
+                rango = st.date_input("Rango de fechas", value=(fmin, fmax),
+                                      min_value=fmin, max_value=fmax, key="dem_fecha")
+                if isinstance(rango, (list, tuple)) and len(rango) == 2:
+                    ini, fin = pd.Timestamp(rango[0]), pd.Timestamp(rango[1]) + pd.Timedelta(days=1)
+                    dff = dff[dff["_fecha"].isna() | ((dff["_fecha"] >= ini) & (dff["_fecha"] < fin))]
         with g2:
-            min_ref = st.slider("Minutos mínimos por partido", 45, 90, 70, step=5, key="dem_minref",
-                                help="Solo cuentan como referencia los partidos con más de estos minutos.")
+            n_part = st.slider("Partidos de referencia", 3, 10, 5, key="dem_npart",
+                               help="Cuántos partidos oficiales recientes definen la demanda de competencia.")
         with g3:
+            min_ref = st.slider("Minutos mínimos por partido", 45, 90, 70, step=5, key="dem_minref")
+        with g4:
             jugs = sorted(dff["_jug"].unique().tolist())
             jsel = st.multiselect("Jugador", jugs, default=[], key="dem_jug")
             if jsel: dff = dff[dff["_jug"].isin(jsel)]
@@ -307,91 +391,142 @@ def pagina_demandas_fisicas(cargar_sheet, pdf_btn=None):
         if dff.empty:
             st.info("Sin sesiones para los filtros seleccionados."); return
 
-        # Referencia SIEMPRE sobre el histórico completo (no sobre el micro filtrado).
-        ref = referencia_partido(d, n_part, min_ref)
-        mat = matriz_microciclo(dff, ref, n_part, min_ref)
+        # Referencia sobre el histórico completo (no sobre el micro filtrado).
+        ref_ind, ref_pos = referencia_partido(d, n_part, min_ref)
+        mat = matriz_microciclo(dff, ref_ind, ref_pos)
 
-        # ── Tarjetas promedio del microciclo ─────────────────────────
+        # ── DIAGNÓSTICO (para cotejar contra Power BI) ───────────────
+        with st.expander("🔎 Diagnóstico de datos — comparar con Power BI", expanded=False):
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Filas hoja GPS", d.attrs.get("filas_totales", len(d)))
+            c2.metric("Fechas inválidas", d.attrs.get("fechas_invalidas", 0),
+                      help="Filas cuya FECHA no se pudo interpretar. Ya NO se descartan de la matriz.")
+            c3.metric("Sesiones tras filtros", len(dff))
+            c4.metric("Jugadores", dff["_jug"].nunique())
+            st.caption("Si el N SES de un jugador no coincide con tu Power BI, mirá acá qué sesiones está tomando:")
+            jd = st.selectbox("Ver sesiones de", sorted(dff["_jug"].unique()), key="dem_diag")
+            det = dff[dff["_jug"] == jd][["_fecha", "_ses", "_micro", "_semana", "min", "td"]].sort_values("_fecha")
+            det.columns = ["Fecha", "Sesión", "Micro", "Semana", "MIN", "TOT DIST"]
+            st.dataframe(det, use_container_width=True, hide_index=True)
+
+        # ── Tarjetas: PROMEDIO DEL ACUMULADO SEMANAL por jugador ─────
+        labs = dict((a, b) for a, b, _ in METRICAS)
         proms = []
         for k, lab, _ in METRICAS:
             if k in dff.columns and dff[k].notna().any():
-                v = dff.groupby("_jug")[k].sum().mean() if k in ACUMULABLES else dff[k].mean()
-                proms.append(_tarjeta(f"PROM {lab}", f"{v:,.0f}".replace(",", ".") if abs(v) >= 100 else f"{v:.1f}"))
+                if k in ACUMULABLES:
+                    v = dff.groupby("_jug")[k].sum().mean()   # promedio del acumulado del microciclo
+                elif k == "vmax":
+                    v = dff.groupby("_jug")[k].max().mean()
+                else:
+                    v = dff[k].mean()
+                if pd.notna(v):
+                    proms.append(_tarjeta(f"PROM {lab}",
+                                          f"{v:,.0f}".replace(",", ".") if abs(v) >= 100 else f"{v:.1f}"))
         st.markdown(_fila_tarjetas(proms), unsafe_allow_html=True)
+        st.caption("Promedio del **acumulado del microciclo** por jugador (no el promedio por sesión).")
 
         # ── Tarjetas EWMA ────────────────────────────────────────────
-        ew = ewma_resumen(d if not jsel else d[d["_jug"].isin(jsel)])
+        base_ew = d if not jsel else d[d["_jug"].isin(jsel)]
+        ew = ewma_resumen(base_ew)
         if not ew.empty:
-            cards = []
-            for k in EWMA_METRICAS:
-                if k in ew.columns:
-                    v = ew[k].mean()
-                    lab = dict((a, b) for a, b, _ in METRICAS)[k]
-                    cards.append(_tarjeta(f"EWMA {lab}", f"{v:.2f}" if pd.notna(v) else "—", color_ewma(v)))
-            st.markdown('<div class="subsec">Ratio agudo:crónico exponencial (EWMA 7:28)</div>', unsafe_allow_html=True)
+            cards = [_tarjeta(f"EWMA {labs[k]}", f"{ew[k].mean():.2f}", color_ewma(ew[k].mean()))
+                     for k in EWMA_METRICAS if k in ew.columns and pd.notna(ew[k].mean())]
+            st.markdown('<div class="subsec">Ratio agudo:crónico exponencial (EWMA 7:28)</div>',
+                        unsafe_allow_html=True)
             st.markdown(_fila_tarjetas(cards), unsafe_allow_html=True)
 
         # ── Matriz ───────────────────────────────────────────────────
-        st.markdown('<div class="subsec">Microciclo vs % de máximo de partido individual</div>', unsafe_allow_html=True)
+        st.markdown('<div class="subsec">Microciclo vs % de máximo de partido individual</div>',
+                    unsafe_allow_html=True)
         if mat.empty:
             st.info("Sin datos."); return
-        if ref.empty:
-            st.warning(f"Ningún jugador tiene partidos oficiales con más de {min_ref}' "
-                       f"(columna SES debe contener 'PARTIDO'). Los % no se pueden calcular.")
+        n_pos_base = int((mat["_base"] == "POS").sum())
+        if n_pos_base:
+            st.caption(f"⚠️ {n_pos_base} jugador(es) sin partidos oficiales de +{min_ref}' "
+                       f"se comparan contra el promedio de su posición (marcados **POS**).")
 
-        mat = mat.sort_values("_pos")
+        mat = mat.sort_values(["_pos", "_jug"])
         n_show = st.slider("Filas a mostrar", 5, max(10, len(mat)), min(10, len(mat)), key="dem_nrows")
         vista = mat.head(n_show)
 
-        labs = dict((a, b) for a, b, _ in METRICAS)
-        heads = ["JUGADOR", "POS", "SES", "MIN"]
+        heads = ["JUGADOR", "N°SES", "POS", "BASE", "MIN", "TOT DIST"]
         for k in COMPARABLES:
-            heads += [labs[k], "% IND"]
+            if k == "td": heads += ["% TD IND"]
+            else: heads += [labs[k], f"% {labs[k].replace('MTS ','')} IND"]
         heads += ["V-MAX"]
 
-        th = "".join(f'<th style="padding:7px 6px;font-size:8.5px;letter-spacing:.5px;color:#fff;'
-                     f'background:rgba(26,90,180,.35);text-transform:uppercase;white-space:nowrap;'
-                     f'position:sticky;top:0;">{h}</th>' for h in heads)
+        th = "".join(f'<th style="padding:6px 5px;font-size:8px;color:#fff;background:rgba(26,90,180,.4);'
+                     f'text-transform:uppercase;white-space:nowrap;position:sticky;top:0;">{h}</th>' for h in heads)
         trs = ""
         for _, r in vista.iterrows():
-            tds = (f'<td style="padding:6px 8px;color:#fff;white-space:nowrap;font-weight:600;">{r["_jug"]}</td>'
-                   f'<td style="text-align:center;color:#94a3b8;font-size:10px;">{r["_pos"]}</td>'
+            bcol = "#4ade80" if r["_base"] == "IND" else "#fbbf24"
+            tds = (f'<td style="padding:5px 7px;color:#fff;white-space:nowrap;font-weight:600;">{r["_jug"]}</td>'
                    f'<td style="text-align:center;color:#cbd5e1;">{int(r["_n_ses"])}</td>'
+                   f'<td style="text-align:center;color:#94a3b8;font-size:9px;">{r["_pos"]}</td>'
+                   f'<td style="text-align:center;color:{bcol};font-size:9px;font-weight:700;">{r["_base"]}</td>'
                    f'<td style="text-align:center;color:#cbd5e1;">{0 if pd.isna(r["min"]) else int(r["min"])}</td>')
             for k in COMPARABLES:
-                val = r.get(k); pct = r.get(f"pct_{k}")
+                val, pct = r.get(k), r.get(f"pct_{k}")
                 vtxt = "—" if pd.isna(val) else f"{val:,.0f}".replace(",", ".")
                 bg, fg = color_pct(pct)
                 ptxt = "—" if pd.isna(pct) else f"{pct:.0f}%"
-                tds += (f'<td style="text-align:center;color:#cbd5e1;">{vtxt}</td>'
-                        f'<td style="text-align:center;background:{bg};color:{fg};font-weight:800;'
-                        f'font-size:11px;">{ptxt}</td>')
+                tds += f'<td style="text-align:center;color:#cbd5e1;">{vtxt}</td>'
+                tds += (f'<td style="text-align:center;background:{bg};color:{fg};font-weight:800;'
+                        f'font-size:10.5px;">{ptxt}</td>')
             vm = r.get("vmax")
             tds += f'<td style="text-align:center;color:#fff;font-weight:700;">{"—" if pd.isna(vm) else f"{vm:.1f}"}</td>'
             trs += f'<tr style="border-bottom:1px solid rgba(255,255,255,.05);">{tds}</tr>'
+        st.markdown(f'<div style="background:#071428;border:1px solid rgba(26,90,180,.3);border-radius:12px;'
+                    f'overflow:auto;max-height:480px;"><table style="width:max-content;min-width:100%;'
+                    f'border-collapse:collapse;font-size:10.5px;"><thead><tr>{th}</tr></thead>'
+                    f'<tbody>{trs}</tbody></table></div>', unsafe_allow_html=True)
+        st.caption(f"Mostrando {len(vista)} de {len(mat)} jugadores · BASE **IND** = vs sus propios partidos · "
+                   f"**POS** = vs promedio de su posición · % = carga microciclo ÷ referencia × 100")
 
-        st.markdown(
-            f'<div style="background:#071428;border:1px solid rgba(26,90,180,.3);border-radius:12px;'
-            f'overflow:auto;max-height:460px;"><table style="width:max-content;min-width:100%;'
-            f'border-collapse:collapse;font-size:11px;"><thead><tr>{th}</tr></thead>'
-            f'<tbody>{trs}</tbody></table></div>', unsafe_allow_html=True)
-        st.caption(f"Mostrando {len(vista)} de {len(mat)} jugadores · "
-                   f"% IND = carga del microciclo ÷ promedio de sus últimos {n_part} partidos con >{min_ref}' × 100")
+        cd1, cd2 = st.columns([4, 1])
+        with cd2:
+            st.download_button("⬇️ CSV", mat.to_csv(index=False).encode("utf-8"),
+                               "matriz_microciclo.csv", "text/csv", key="dem_csv",
+                               use_container_width=True)
 
-        st.download_button("⬇️ CSV de la matriz completa",
-                           mat.to_csv(index=False).encode("utf-8"),
-                           "matriz_microciclo.csv", "text/csv", key="dem_csv")
-
+        # ── PDF: matriz COMPLETA, horizontal, con semáforo ───────────
         if pdf_btn:
-            exp = vista[["_jug", "_pos", "_n_ses", "min"] + COMPARABLES].copy()
-            exp.columns = ["Jugador", "Pos", "Ses", "Min"] + [labs[k] for k in COMPARABLES]
+            exp = pd.DataFrame({"JUGADOR": mat["_jug"], "N°SES": mat["_n_ses"], "POS": mat["_pos"],
+                                "BASE": mat["_base"], "MIN": mat["min"], "TOT_DIST": mat["td"]})
+            est = pd.DataFrame("", index=mat.index, columns=exp.columns)
+            for k in COMPARABLES:
+                cv, cp = labs[k], f"%{labs[k].replace('MTS ', '')}"
+                if k != "td":
+                    exp[cv] = mat[k]; est[cv] = ""
+                exp[cp] = mat[f"pct_{k}"]
+                est[cp] = [f"{color_pct(v)[0]}|{color_pct(v)[1]}" for v in mat[f"pct_{k}"]]
+            exp["V-MAX"] = mat["vmax"]; est["V-MAX"] = ""
+            est = est.reindex(columns=exp.columns, fill_value="")
+
+            kp = []
+            for k, lab, _ in METRICAS:
+                if k in dff.columns and dff[k].notna().any():
+                    v = dff.groupby("_jug")[k].sum().mean() if k in ACUMULABLES else dff[k].mean()
+                    if pd.notna(v):
+                        kp.append((f"PROM {lab}", f"{v:,.0f}" if abs(v) >= 100 else f"{v:.1f}"))
+            for k in EWMA_METRICAS:
+                if not ew.empty and k in ew.columns and pd.notna(ew[k].mean()):
+                    vv = ew[k].mean()
+                    rgb = (74, 222, 128) if 0.8 <= vv < 1.3 else ((249, 115, 22) if vv >= 1.3 else (96, 165, 250))
+                    kp.append((f"EWMA {labs[k]}", f"{vv:.2f}", rgb))
+
             pdf_btn("Demandas Fisicas - Microciclo",
-                    subtitulo=f"Microciclo {msel} - Temporada {tsel}",
-                    kpis=[(f"PROM {labs[k]}", f"{dff[k].sum()/max(1,dff['_jug'].nunique()):,.0f}")
-                          for k in ["min", "td", "m19"] if k in dff.columns],
-                    tablas=[("Matriz microciclo vs partido individual", exp)],
-                    notas=f"% IND = carga del microciclo / promedio de los ultimos {n_part} partidos "
-                          f"oficiales con mas de {min_ref} minutos, por jugador.",
+                    subtitulo=f"Microciclo {msel} - Temporada {tsel} - Club A. Union",
+                    kpis=kp, matriz=exp, estilos=est,
+                    matriz_titulo="Microciclo vs % de max de partido individual",
+                    orientacion="L",
+                    notas=(f"% IND = carga acumulada del microciclo / referencia x 100. "
+                           f"BASE IND: referencia = MAXIMO de los ultimos {n_part} partidos oficiales "
+                           f"del jugador con mas de {min_ref} minutos. BASE POS: el jugador no tiene partidos "
+                           f"que califiquen y se compara contra el promedio de su posicion. "
+                           f"Sesiones excluidas del calculo: {', '.join(excl) if excl else 'ninguna'}. "
+                           f"EWMA = ratio agudo(7d):cronico(28d) exponencial (Williams et al., 2017)."),
                     key="dem1")
 
     # ═════════════════════════════════════════════════════════════════
