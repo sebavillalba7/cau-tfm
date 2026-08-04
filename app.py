@@ -1557,6 +1557,12 @@ def pagina_resumen():
 # ══════════════════════════════════════════════════════════════
 def pagina_admin():
     st.markdown('<div class="sec-title">🔧 Panel de Administración</div>',unsafe_allow_html=True)
+    _todos_pdf=todos_los_usuarios()
+    _tbl_pdf=pd.DataFrame([{"Usuario":u,"Nombre":d["nombre"],"Área":d["area"],"Rol":d["rol"],
+                            "Estado":"Activo" if d["activo"] else "Inactivo"} for u,d in _todos_pdf.items()])
+    pdf_btn("Panel Admin",kpis=[("Usuarios",len(_tbl_pdf)),
+            ("Pendientes",sum(1 for d in st.session_state.usuarios_extra.values() if not d.get("aprobado")))],
+            tablas=[("Usuarios del sistema",_tbl_pdf)],notas="Listado de usuarios y solicitudes pendientes.",key="admin")
     pendientes={k:d for k,d in st.session_state.usuarios_extra.items() if not d.get("aprobado")}
     if pendientes:
         st.warning(f"⚠️ {len(pendientes)} solicitud(es) pendiente(s)")
@@ -1779,7 +1785,7 @@ def render_pagina():
     _check_versiones()
     u=st.session_state.usuario;p=st.session_state.pagina
     if not tiene_acceso(u,p) and p!="admin": st.error("🚫 No tenés acceso.");return
-    {"home":pagina_home,"historial":pagina_historial,"estadisticas_medicas":pagina_estadisticas_medicas,"evaluaciones":pagina_evaluaciones,"riesgo_lesion":lambda:mr.pagina_riesgo_lesion(cargar_sheet),"demandas_fisicas":lambda:dfx.pagina_demandas_fisicas(cargar_sheet,pdf_btn),"control_partidos":pagina_control_partidos,"nutricion":pagina_nutricion,"resumen_individual":pagina_resumen,"admin":pagina_admin}.get(p,lambda:st.error("Página no encontrada"))()
+    {"home":pagina_home,"historial":pagina_historial,"estadisticas_medicas":pagina_estadisticas_medicas,"evaluaciones":pagina_evaluaciones,"riesgo_lesion":lambda:mr.pagina_riesgo_lesion(cargar_sheet,pdf_btn),"demandas_fisicas":lambda:dfx.pagina_demandas_fisicas(cargar_sheet,pdf_btn),"control_partidos":pagina_control_partidos,"nutricion":pagina_nutricion,"resumen_individual":pagina_resumen,"admin":pagina_admin}.get(p,lambda:st.error("Página no encontrada"))()
 
 if not st.session_state.logged:
     pagina_login()
