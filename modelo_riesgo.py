@@ -325,10 +325,11 @@ def riesgo_actual_por_jugador(res):
 # ════════════════════════════════════════════════════════════════════════
 #  STREAMLIT  ·  Página integrable en la app (imports perezosos)
 # ════════════════════════════════════════════════════════════════════════
-def pagina_riesgo_lesion(cargar_sheet):
+def pagina_riesgo_lesion(cargar_sheet, pdf_btn=None):
     """
-    Página de la app. Recibe la función `cargar_sheet` de app.py.
-    Uso en el router:  "riesgo_lesion": lambda: pagina_riesgo_lesion(cargar_sheet)
+    Página de la app. Recibe la función `cargar_sheet` de app.py y,
+    opcionalmente, `pdf_btn` (de app.py) para exportar el informe.
+    Uso en el router:  "riesgo_lesion": lambda: pagina_riesgo_lesion(cargar_sheet, pdf_btn)
     """
     import streamlit as st
     import plotly.express as px
@@ -336,10 +337,70 @@ def pagina_riesgo_lesion(cargar_sheet):
 
     st.markdown('<div class="sec-title">🤖 Riesgo de Lesión — Modelo FWF</div>', unsafe_allow_html=True)
 
+    with st.expander("📖 ¿Qué es esto y cómo se calcula? — Metodología, escala y referencias", expanded=False):
+        st.markdown(
+            '<div style="font-size:12.5px;color:#cbd5e1;line-height:1.7;">'
+
+            '<b style="color:#f87171;">¿Qué es el FWF?</b><br>'
+            'El <b>Footballer Workload Footprint (FWF)</b> es un índice propio, de 0 a 100, que resume '
+            'en un solo número la carga externa de una sesión de GPS. Combina cinco variables ponderadas '
+            'según su peso en la literatura de carga de trabajo: distancia total (30%), distancia a alta '
+            'velocidad / HSD (25%), número de sprints (20%), aceleraciones (15%) y desaceleraciones (10%). '
+            'Cada variable se normaliza contra el resto del plantel (min-max) y el resultado se ajusta a un '
+            'partido de referencia de 90 minutos, para poder comparar una sesión de 45\' con una de 90\' sin '
+            'penalizar a quien jugó menos tiempo.<br><br>'
+
+            '<b style="color:#f87171;">¿Cómo se llega al puntaje de riesgo?</b><br>'
+            'A partir del FWF diario de cada jugador se construyen indicadores de carga acumulada, siguiendo '
+            'el estándar de la ciencia del deporte:<br>'
+            '&bull; <b>ACWR</b> (Acute:Chronic Workload Ratio) = carga aguda (últimos 7 días) / carga crónica '
+            '(promedio de 28 días). Mide si la semana actual se disparó respecto al hábito del jugador.<br>'
+            '&bull; <b>Monotonía</b> (Foster, 1998) = carga media semanal / desvío estándar de esa carga. '
+            'Una monotonía alta indica sesiones muy parecidas día a día, sin variabilidad de estímulo.<br>'
+            '&bull; <b>Strain</b> = carga aguda × monotonía. Combina volumen y falta de variabilidad en un '
+            'solo indicador de "tensión" acumulada.<br>'
+            'Con estas variables (más FWF, distancia, HSD y sprints acumulados a 7 días) el sistema entrena '
+            'un <b>RandomForest</b> que aprende, con el historial real de lesiones del club, qué combinaciones '
+            'de carga precedieron una lesión en los días siguientes. Se valida con <b>split temporal</b> '
+            '(entrena con el pasado, evalú sobre el futuro) para no hacer trampa mirando datos que en la '
+            'realidad todavía no habían pasado. Si el club todavía no acumuló lesiones etiquetadas '
+            'suficientes (mínimo 12 casos) para entrenar un modelo confiable, la app cae automáticamente a '
+            'un <b>modo por reglas</b> basado en umbrales de ACWR y monotonía tomados de la literatura '
+            '(Gabbett, 2016), y lo indica explícitamente en pantalla — nunca se muestra un modelo de ML '
+            'como si fuera confiable cuando no hay datos para sostenerlo.<br><br>'
+
+            '<b style="color:#f87171;">Escala de lectura</b><br>'
+            '&bull; <span style="color:#4ade80;font-weight:700;">BAJO (0-32)</span>: carga dentro de lo habitual '
+            'para el jugador. No requiere acción.<br>'
+            '&bull; <span style="color:#fbbf24;font-weight:700;">MEDIO (33-65)</span>: carga por encima de lo '
+            'habitual o con poca variabilidad. Vale la pena que el cuerpo técnico lo tenga en el radar y '
+            'valore ajustar el próximo estímulo.<br>'
+            '&bull; <span style="color:#ef4444;font-weight:700;">ALTO (66-100)</span>: combinación de carga '
+            'asociada históricamente a mayor probabilidad de lesión. Sugerimos revisión conjunta con el '
+            'área médica antes de la próxima sesión de alta intensidad.<br>'
+            'Como referencia de ACWR (Gabbett, 2016): la <i>zona óptima</i> ronda 0.8-1.3; por encima de 1.3 '
+            'aumenta el riesgo por sobrecarga aguda, y por debajo de 0.8 aparece riesgo por pérdida brusca de '
+            'forma física ("destraining").<br><br>'
+
+            '<b style="color:#f87171;">Importante.</b> Este score es una herramienta de <b>apoyo a la '
+            'decisión</b>, no un diagnóstico médico. La decisión final sobre entrenar, adaptar carga o '
+            'evaluar clínicamente a un jugador es siempre del cuerpo médico y técnico.<br><br>'
+
+            '<b style="color:#f87171;">Referencias.</b> Gabbett, T. J. (2016). <i>The training-injury '
+            'prevention paradox</i>. British Journal of Sports Medicine, 50(5), 273-280. &middot; Williams, S. '
+            'et al. (2017). <i>Better way to determine the acute:chronic workload ratio?</i> British Journal '
+            'of Sports Medicine, 51(3), 209-210. &middot; Foster, C. (1998). <i>Monitoring training in '
+            'athletes with reference to overtraining syndrome</i>. Medicine & Science in Sports & Exercise, '
+            '30(7), 1164-1168.'
+
+            '</div>', unsafe_allow_html=True)
+
     gps = cargar_sheet("gps")
     les = cargar_sheet("lesiones")
     if gps is None or gps.empty:
-        st.warning("No se pudo cargar la hoja GPS."); return
+        st.warning("No se pudo cargar la hoja GPS.")
+        if pdf_btn: pdf_btn("Riesgo de Lesion", notas="No se pudo cargar la hoja GPS.")
+        return
 
     # ── Filtros (mismo criterio que el resto de la app) ──────────────
     st.markdown('<div class="filter-bar">', unsafe_allow_html=True)
@@ -371,7 +432,9 @@ def pagina_riesgo_lesion(cargar_sheet):
     st.markdown('</div>', unsafe_allow_html=True)
 
     if gps.empty:
-        st.info("Sin sesiones para los filtros seleccionados."); return
+        st.info("Sin sesiones para los filtros seleccionados.")
+        if pdf_btn: pdf_btn("Riesgo de Lesion", notas="Sin sesiones para los filtros seleccionados.")
+        return
 
     @st.cache_data(ttl=300, show_spinner="Entrenando modelo de riesgo…")
     def _pipeline(_gps, _les, vent):
@@ -383,7 +446,9 @@ def pagina_riesgo_lesion(cargar_sheet):
 
     res = _pipeline(gps, les, ventana)
     if res is None:
-        st.warning("No hay columnas suficientes (jugador/fecha) en la hoja GPS."); return
+        st.warning("No hay columnas suficientes (jugador/fecha) en la hoja GPS.")
+        if pdf_btn: pdf_btn("Riesgo de Lesion", notas="No hay columnas suficientes (jugador/fecha) en la hoja GPS.")
+        return
 
     riesgo_jug = riesgo_actual_por_jugador(res)
     modo = res["modo"]
@@ -414,6 +479,12 @@ def pagina_riesgo_lesion(cargar_sheet):
 
     # ── Tabla de riesgo actual con semáforo ──────────────────────────
     st.markdown('<div class="subsec">Riesgo actual por jugador</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin:-4px 0 12px;font-size:11px;color:#94a3b8;">'
+        '<span><b style="color:#4ade80;">●</b> BAJO 0-32 — carga habitual, sin acción</span>'
+        '<span><b style="color:#fbbf24;">●</b> MEDIO 33-65 — seguimiento, valorar ajustar carga</span>'
+        '<span><b style="color:#ef4444;">●</b> ALTO 66-100 — revisar con área médica</span>'
+        '</div>', unsafe_allow_html=True)
     if riesgo_jug.empty:
         st.info("Sin datos de riesgo para mostrar.")
     else:
@@ -500,3 +571,23 @@ def pagina_riesgo_lesion(cargar_sheet):
         'evalúa sobre el futuro) para evitar fuga de datos, y reporta AUC/recall honestos. '
         'La métrica FWF y el ACWR aportan contexto de carga; la decisión final es del cuerpo médico.</div>',
         unsafe_allow_html=True)
+
+    # ── Exportación a PDF ──────────────────────────────────────────
+    if pdf_btn:
+        if not riesgo_jug.empty:
+            n_alto = int((riesgo_jug["Riesgo"] >= 66).sum())
+            n_medio = int(((riesgo_jug["Riesgo"] >= 33) & (riesgo_jug["Riesgo"] < 66)).sum())
+            kp = [("Riesgo alto", n_alto), ("Riesgo medio", n_medio),
+                  ("Jugadores", len(riesgo_jug)), ("Modo", "ML" if modo == "ml" else "Reglas")]
+            if modo == "ml" and res.get("metricas"):
+                m = res["metricas"]
+                kp += [("AUC test", m.get("auc", "-")), ("Recall", m.get("recall", "-"))]
+            tabla_exp = riesgo_jug.copy()
+            if "Última sesión" in tabla_exp.columns:
+                tabla_exp["Última sesión"] = tabla_exp["Última sesión"].dt.strftime("%d/%m/%Y")
+            pdf_btn("Riesgo de Lesion", kpis=kp, tablas=[("Riesgo actual por jugador", tabla_exp)],
+                    notas=f"Modelo FWF ({'RandomForest' if modo == 'ml' else 'basado en reglas'}), "
+                          f"ventana de prediccion {ventana} dias.",
+                    orientacion="L", key="riesgo")
+        else:
+            pdf_btn("Riesgo de Lesion", notas="Sin datos de riesgo para los filtros seleccionados.")
