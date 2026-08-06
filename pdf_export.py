@@ -133,7 +133,7 @@ class ReportePDF(FPDF):
                 self.cell(ancho - 4, 7, _clean(str(val))[:14], ln=2, align="C")
             self.set_y(y0 + 18)
 
-    def tabla_color(self, df, estilos=None, max_filas=40):
+    def tabla_color(self, df, estilos=None, max_filas=250):
         """
         Tabla con color por celda (replica el semaforo del Power BI).
         estilos: DataFrame de la misma forma con "bg_hex|fg_hex" o "" por celda.
@@ -188,8 +188,11 @@ class ReportePDF(FPDF):
             self.set_text_color(*GRIS)
             self.cell(0, 4, _clean(f"Mostrando {max_filas} de {len(df)} filas."), ln=1)
 
-    def tabla(self, df, max_filas=28, max_cols=9):
-        """Tabla compacta simple (sin color)."""
+    def tabla(self, df, max_filas=400, max_cols=20):
+        """Tabla compacta simple (sin color). Antes cortaba a 28 filas / 9 columnas
+        SIEMPRE, aunque el usuario hubiera filtrado a menos datos: el PDF terminaba
+        mostrando un recorte arbitrario que no coincidia con lo filtrado en pantalla.
+        Ahora el limite es solo una salvaguarda para tablas gigantes sin filtrar."""
         if df is None or df.empty:
             self.parrafo("Sin datos para el periodo seleccionado.")
             return
