@@ -16,7 +16,7 @@
 #  · EWMA (Williams et al., 2017): media móvil exponencial. Penaliza menos
 #    el pasado lejano que el rolling simple del ACWR clásico.
 #      EWMA_hoy = carga_hoy · λ + EWMA_ayer · (1 − λ),  λ = 2/(N+1)
-#      Ratio = EWMA_agudo(7d) / EWMA_crónico(28d)
+#      Ratio = EWMA_agudo(7d) / EWMA_crónico(21d)
 #
 #  RENDIMIENTO: todo se agrega ANTES de mandar al browser y las tablas se
 #  paginan. El bug de 249.8 MB venía de renderizar la hoja GPS completa
@@ -120,6 +120,11 @@ def preparar(df):
     d["_fecha"] = _parse_fecha(df[m["fecha"]])
     for campo in ["pos", "micro", "semana", "ses", "temp", "ref", "ent"]:
         d["_" + campo] = df[m[campo]].astype(str).str.strip() if m.get(campo) else ""
+    # Año real de la sesion, tomado de FECHA (GPS_LONG no tiene columna TEMP:
+    # "TEMP" es una columna de la hoja de Historial/roster, no de GPS_LONG, por lo
+    # que _temp queda vacío en todas las filas y el selector "Año" no filtraba nada
+    # -> por eso aparecian en EWMA jugadores que ya no estan en el club).
+    d["_anio"] = d["_fecha"].dt.year
     for k, _, _ in METRICAS:
         col = m.get(k)
         if col:
@@ -224,8 +229,9 @@ def matriz_microciclo(d, ref_ind, ref_pos):
 
 # ─────────────────────────────────────────────────────────────────────────
 #  EWMA  ·  ratio agudo:crónico exponencial (Williams et al., 2017)
+#  Ventana 7:21 (7 dias agudo / 21 dias cronico).
 # ─────────────────────────────────────────────────────────────────────────
-def ewma_serie(d, metrica, agudo=7, cronico=28):
+def ewma_serie(d, metrica, agudo=7, cronico=21):
     """
     Serie diaria por jugador con EWMA agudo, crónico y su ratio.
     Reindexa a días calendario (los días sin sesión cuentan como carga 0),
@@ -253,7 +259,7 @@ def ewma_serie(d, metrica, agudo=7, cronico=28):
     return pd.concat(salida, ignore_index=True) if salida else pd.DataFrame()
 
 
-def ewma_resumen(d, metricas=None, agudo=7, cronico=28):
+def ewma_resumen(d, metricas=None, agudo=7, cronico=21):
     """Último ratio EWMA por jugador y por métrica → DataFrame (jugadores × métricas)."""
     metricas = metricas or EWMA_METRICAS
     out = {}
@@ -434,7 +440,7 @@ def pagina_demandas_fisicas(cargar_sheet, pdf_btn=None):
         if not ew.empty:
             cards = [_tarjeta(f"EWMA {labs[k]}", f"{ew[k].mean():.2f}", color_ewma(ew[k].mean()))
                      for k in EWMA_METRICAS if k in ew.columns and pd.notna(ew[k].mean())]
-            st.markdown('<div class="subsec">Ratio agudo:crónico exponencial (EWMA 7:28)</div>',
+            st.markdown('<div class="subsec">Ratio agudo:crónico exponencial (EWMA 7:21)</div>',
                         unsafe_allow_html=True)
             st.markdown(_fila_tarjetas(cards), unsafe_allow_html=True)
 
@@ -523,7 +529,7 @@ def pagina_demandas_fisicas(cargar_sheet, pdf_btn=None):
                    f"del jugador con mas de {min_ref} minutos. BASE POS: el jugador no tiene partidos "
                    f"que califiquen y se compara contra el promedio de su posicion. "
                    f"Sesiones excluidas del calculo: {', '.join(excl) if excl else 'ninguna'}. "
-                   f"EWMA = ratio agudo(7d):cronico(28d) exponencial (Williams et al., 2017).")
+                   f"EWMA = ratio agudo(7d):cronico(21d) exponencial (Williams et al., 2017).")
             _kw=dict(subtitulo=f"Microciclo {msel} - Temporada {tsel} - Club A. Union",
                      kpis=kp, matriz=exp, estilos=est,
                      matriz_titulo="Microciclo vs % de max de partido individual",
@@ -548,13 +554,16 @@ def pagina_demandas_fisicas(cargar_sheet, pdf_btn=None):
     with t2:
         c1, c2 = st.columns([1, 2])
         with c1:
-            temps2 = ["Todas"] + sorted([x for x in d["_temp"].unique() if x and x != "nan"], reverse=True)
-            t2sel = st.selectbox("Año", temps2, index=1 if len(temps2) > 1 else 0, key="ew_temp")
+            anios2 = sorted([int(x) for x in d["_anio"].dropna().unique()], reverse=True)
+            opts2 = ["Todas"] + [str(a) for a in anios2]
+            t2sel = st.selectbox("Año", opts2, index=1 if len(opts2) > 1 else 0, key="ew_temp",
+                                 help="Filtra por año de sesión (FECHA). Por defecto muestra el año más reciente "
+                                      "para no mezclar jugadores que ya no están en el plantel.")
         with c2:
             pos2 = sorted([x for x in d["_pos"].unique() if x and x != "nan"])
             p2sel = st.multiselect("Posición", pos2, default=[], key="ew_pos")
         dg = d.copy()
-        if t2sel != "Todas": dg = dg[dg["_temp"] == t2sel]
+        if t2sel != "Todas": dg = dg[dg["_anio"] == int(t2sel)]
         if p2sel: dg = dg[dg["_pos"].isin(p2sel)]
 
         ew = ewma_resumen(dg)
@@ -603,8 +612,19 @@ def pagina_demandas_fisicas(cargar_sheet, pdf_btn=None):
     #  TAB 3 — EWMA INDIVIDUAL
     # ═════════════════════════════════════════════════════════════════
     with t3:
-        jind = st.selectbox("Jugador", sorted(d["_jug"].unique().tolist()), key="ewi_jug")
-        di = d[d["_jug"] == jind]
+        c1i, c2i = st.columns([1, 2])
+        with c1i:
+            anios3 = sorted([int(x) for x in d["_anio"].dropna().unique()], reverse=True)
+            opts3 = ["Todas"] + [str(a) for a in anios3]
+            t3sel = st.selectbox("Año", opts3, index=1 if len(opts3) > 1 else 0, key="ewi_temp",
+                                 help="Filtra por año de sesión (FECHA). Por defecto muestra el año más reciente "
+                                      "para no listar jugadores que ya no están en el plantel.")
+        d3 = d if t3sel == "Todas" else d[d["_anio"] == int(t3sel)]
+        if d3.empty:
+            st.info("Sin sesiones para el año seleccionado."); return
+        with c2i:
+            jind = st.selectbox("Jugador", sorted(d3["_jug"].unique().tolist()), key="ewi_jug")
+        di = d3[d3["_jug"] == jind]
         labs = dict((a, b) for a, b, _ in METRICAS)
 
         ewi = ewma_resumen(di)
@@ -624,7 +644,7 @@ def pagina_demandas_fisicas(cargar_sheet, pdf_btn=None):
                              marker_color="rgba(96,165,250,.35)", yaxis="y2"))
         fig.add_trace(go.Scatter(x=s["_fecha"], y=s["agudo"], name="EWMA agudo (7d)",
                                  line=dict(color="#c8102e", width=2), yaxis="y2"))
-        fig.add_trace(go.Scatter(x=s["_fecha"], y=s["cronico"], name="EWMA crónico (28d)",
+        fig.add_trace(go.Scatter(x=s["_fecha"], y=s["cronico"], name="EWMA crónico (21d)",
                                  line=dict(color="#facc15", width=2, dash="dash"), yaxis="y2"))
         fig.add_trace(go.Scatter(x=s["_fecha"], y=s["ratio"], name="Ratio A:C",
                                  line=dict(color="#4ade80", width=2.5)))
