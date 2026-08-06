@@ -43,6 +43,21 @@ def _clean(txt):
     return "".join(out).strip()
 
 
+def _descargar_imagen(url, timeout=4):
+    """Descarga la foto del jugador para embeberla en el PDF (el avatar se veia
+    en pantalla pero nunca se exportaba). Si falla por lo que sea (sin conexion,
+    URL invalida, imagen caida) devuelve None sin romper la generacion del PDF."""
+    if not url or not str(url).strip().lower().startswith("http"):
+        return None
+    try:
+        import requests
+        r = requests.get(str(url).strip(), timeout=timeout)
+        r.raise_for_status()
+        return r.content
+    except Exception:
+        return None
+
+
 def _fmt_valor(v):
     """Formatea cualquier valor de celda para el PDF. Antes un NaN llegaba a
     tabla() como float y se imprimia literalmente 'nan' (o 'None' si venia de
@@ -122,6 +137,40 @@ class ReportePDF(FPDF):
         self.cell(0, 5, f"Pag. {self.page_no()}/{{nb}}", 0, 0, "R")
 
     # ── bloques reutilizables ────────────────────────────────────────
+    def ficha_jugador(self, nombre, datos=None, foto_bytes=None):
+        """Encabezado de ficha individual: avatar + nombre + chips de datos
+        (posicion, edad, pais...). Antes el avatar solo se veia en pantalla."""
+        datos = [d for d in (datos or []) if d and str(d).strip().lower() not in ("nan", "none", "—", "-")]
+        y0 = self.get_y()
+        tam = 24
+        dibujo_ok = False
+        if foto_bytes:
+            try:
+                import io
+                self.image(io.BytesIO(foto_bytes), x=12, y=y0, w=tam, h=tam)
+                dibujo_ok = True
+            except Exception:
+                dibujo_ok = False
+        if not dibujo_ok:
+            self.set_fill_color(235, 238, 244); self.set_draw_color(210, 215, 225)
+            self.rect(12, y0, tam, tam, "DF")
+            self.set_xy(12, y0 + tam / 2 - 4)
+            self.set_font("Helvetica", "B", 13); self.set_text_color(*GRIS)
+            inicial = _clean(nombre)[:1].upper() if nombre else "?"
+            self.cell(tam, 8, inicial, align="C")
+        tx = 12 + tam + 5
+        self.set_xy(tx, y0 + 1)
+        self.set_font("Helvetica", "B", 13); self.set_text_color(*NEGRO)
+        self.cell(self.ancho_util - tam - 5, 7, _clean(nombre), ln=1)
+        self.set_x(tx)
+        self.set_font("Helvetica", "", 7.5); self.set_text_color(*GRIS)
+        linea = "   ·   ".join(_clean(str(d)) for d in datos)
+        self.cell(self.ancho_util - tam - 5, 5, linea[:120], ln=1)
+        self.set_y(max(self.get_y(), y0 + tam) + 3)
+        self.set_draw_color(225, 230, 238)
+        self.line(12, self.get_y(), 12 + self.ancho_util, self.get_y())
+        self.ln(3)
+
     def seccion(self, num, texto):
         self.ln(1)
         self.set_font("Helvetica", "B", 8)
@@ -353,7 +402,7 @@ def generar_pdf(titulo, subtitulo="", kpis=None, tablas=None, notas=None, escudo
                 orientacion="P", matriz=None, estilos=None, matriz_titulo="Matriz",
                 color_cols=None, tarjetas_df=None, tarjetas_campos=None, tarjetas_titulo_col=None,
                 tarjetas_subtitulo_col=None, tarjetas_seccion="Fichas", tarjetas_por_fila=3,
-                graficos=None):
+                graficos=None, ficha_nombre=None, ficha_datos=None, ficha_foto_url=None):
     """
     kpis        : lista de (label, valor) o (label, valor, color_rgb)
     tablas      : lista de (titulo_seccion, DataFrame)   -> tabla simple
@@ -366,10 +415,18 @@ def generar_pdf(titulo, subtitulo="", kpis=None, tablas=None, notas=None, escudo
                   (una card por fila, como en pantalla) en vez de tabla plana.
     graficos    : lista de (titulo, bytes_png) -> se embeben como imagen, para que
                   el reporte no sea solo texto/tablas.
+    ficha_nombre / ficha_datos / ficha_foto_url : si se pasa ficha_nombre, se agrega
+                  un encabezado de ficha individual con avatar (descargado de la URL)
+                  + nombre + datos (posicion, edad, pais...). El avatar antes solo
+                  se veia en pantalla y nunca se exportaba.
     """
     pdf = ReportePDF(titulo=titulo, subtitulo=subtitulo, escudo=escudo, orientacion=orientacion)
     pdf.alias_nb_pages()
     pdf.add_page()
+
+    if ficha_nombre:
+        foto_bytes = _descargar_imagen(ficha_foto_url)
+        pdf.ficha_jugador(ficha_nombre, ficha_datos, foto_bytes)
 
     tablas = [(t, d) for t, d in (tablas or []) if d is not None and not d.empty]
     graficos = [(t, b) for t, b in (graficos or []) if b]
@@ -455,7 +512,7 @@ def pdf_btn(titulo="Informe", subtitulo="", kpis=None, tablas=None, notas=None,
             matriz_titulo="Matriz", label="Exportar PDF", color_cols=None,
             tarjetas_df=None, tarjetas_campos=None, tarjetas_titulo_col=None,
             tarjetas_subtitulo_col=None, tarjetas_seccion="Fichas", tarjetas_por_fila=3,
-            graficos=None, **kwargs):
+            graficos=None, ficha_nombre=None, ficha_datos=None, ficha_foto_url=None, **kwargs):
     """Boton real de descarga PDF (st.download_button es un widget nativo:
     a diferencia del <button onclick> anterior, Streamlit no lo sanitiza).
     **kwargs absorbe cualquier parametro futuro para no romper por firma."""
@@ -468,7 +525,8 @@ def pdf_btn(titulo="Informe", subtitulo="", kpis=None, tablas=None, notas=None,
                            color_cols=color_cols, tarjetas_df=tarjetas_df, tarjetas_campos=tarjetas_campos,
                            tarjetas_titulo_col=tarjetas_titulo_col, tarjetas_subtitulo_col=tarjetas_subtitulo_col,
                            tarjetas_seccion=tarjetas_seccion, tarjetas_por_fila=tarjetas_por_fila,
-                           graficos=graficos)
+                           graficos=graficos, ficha_nombre=ficha_nombre, ficha_datos=ficha_datos,
+                           ficha_foto_url=ficha_foto_url)
     except Exception as e:
         st.warning(f"No se pudo generar el PDF: {e}")
         return
