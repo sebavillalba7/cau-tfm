@@ -147,7 +147,7 @@ def construir_features(df_gps, cols=None):
     """
     Para cada (jugador, fecha) calcula features que usan SOLO el pasado:
       - carga_dia (FWF_raw del día)
-      - aguda_7d, cronica_28d, ACWR
+      - aguda_7d, cronica_21d, ACWR (ventana 7:21, no 7:28)
       - monotonia (Foster), strain
       - fwf_7d, dist_7d, hsd_7d, sprints_7d
     """
@@ -174,7 +174,7 @@ def construir_features(df_gps, cols=None):
         g = g.sort_values("_fecha").set_index("_fecha")
         key = _norm_nombre(jug)
         agu = g["_carga"].rolling("7D").sum()
-        cro = g["_carga"].rolling("28D").mean() * 7
+        cro = g["_carga"].rolling("21D").mean() * 7
         acwr = (agu / cro.replace(0, np.nan))
         sd7 = g["_carga"].rolling("7D").std()
         mean7 = g["_carga"].rolling("7D").mean()
@@ -183,7 +183,7 @@ def construir_features(df_gps, cols=None):
         out = pd.DataFrame({
             "_jug": jug, "_key": key, "_fecha": g.index,
             "carga_dia": g["_carga"].values,
-            "aguda_7d": agu.values, "cronica_28d": cro.values,
+            "aguda_7d": agu.values, "cronica_21d": cro.values,
             "ACWR": acwr.values, "monotonia": monotonia.values, "strain": strain.values,
             "fwf_7d": g["_carga"].rolling("7D").sum().values,
             "dist_7d": g["_dist"].rolling("7D").sum().values,
@@ -196,7 +196,7 @@ def construir_features(df_gps, cols=None):
     return feat.replace([np.inf, -np.inf], np.nan)
 
 
-FEATURES_ML = ["carga_dia", "aguda_7d", "cronica_28d", "ACWR",
+FEATURES_ML = ["carga_dia", "aguda_7d", "cronica_21d", "ACWR",
                "monotonia", "strain", "fwf_7d", "dist_7d", "hsd_7d", "sprints_7d"]
 
 
@@ -354,7 +354,7 @@ def pagina_riesgo_lesion(cargar_sheet, pdf_btn=None):
             'A partir del FWF diario de cada jugador se construyen indicadores de carga acumulada, siguiendo '
             'el estándar de la ciencia del deporte:<br>'
             '&bull; <b>ACWR</b> (Acute:Chronic Workload Ratio) = carga aguda (últimos 7 días) / carga crónica '
-            '(promedio de 28 días). Mide si la semana actual se disparó respecto al hábito del jugador.<br>'
+            '(promedio de 21 días). Mide si la semana actual se disparó respecto al hábito del jugador.<br>'
             '&bull; <b>Monotonía</b> (Foster, 1998) = carga media semanal / desvío estándar de esa carga. '
             'Una monotonía alta indica sesiones muy parecidas día a día, sin variabilidad de estímulo.<br>'
             '&bull; <b>Strain</b> = carga aguda × monotonía. Combina volumen y falta de variabilidad en un '
