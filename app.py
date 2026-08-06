@@ -173,7 +173,7 @@ def pdf_btn(titulo=None,subtitulo="",kpis=None,tablas=None,notas=None,key=None,
     u=st.session_state.get("usuario") or {}
     sub=subtitulo or f"Club A. Union - {u.get('area','')} - {u.get('nombre','')}"
     pdf_export.pdf_btn(t,sub,kpis,tablas,notas,escudo=ASSETS/"escudo_union.png",key=key or pag,
-                       orientacion=orientacion,matriz=matriz,estilos=estilos,matriz_titulo=matriz_titulo)
+                       orientacion=orientacion,matriz=matriz,estilos=estilos,matriz_titulo=matriz_titulo,**kwargs)
 
 
 def no_data(n):
@@ -559,7 +559,11 @@ def pagina_historial():
     if "📋 Tabla" in vista:
         cols_show=[jcol,"_posiciones"]+[c for c in [perfil_col,nac_col,edad_col,nacio_col,temp_col] if c and c in dff.columns]
         tbl=dff[cols_show].rename(columns={"_posiciones":"Posiciones"}).reset_index(drop=True)
-        st.dataframe(tbl,use_container_width=True,hide_index=True,height=min(600,60+34*max(1,len(tbl))))
+        # Antes st.dataframe mostraba "None" crudo para valores faltantes (feo, parece un bug de datos).
+        tbl_disp=tbl.astype(object).where(tbl.notna(), "—")
+        for c in tbl_disp.columns:
+            tbl_disp[c]=tbl_disp[c].astype(str).replace({"nan":"—","None":"—","<NA>":"—","":"—"})
+        st.dataframe(tbl_disp,use_container_width=True,hide_index=True,height=min(600,60+34*max(1,len(tbl_disp))))
     else:
         cols_grid=st.columns(3)
         for i,(_,row) in enumerate(dff.iterrows()):
@@ -576,16 +580,30 @@ def pagina_historial():
                 perf_class="chip-blue" if "IZQ" in perfil.upper() else "chip-green"
                 st.markdown(f'<div class="player-card"><div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">{avatar}<div style="flex:1;min-width:0;"><div style="font-size:15px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{nombre}</div><div style="margin-top:4px;">{pos_chips}</div></div></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px;"><div style="color:#64748b;">🎂 Nac: <b style="color:#94a3b8;">{nac}</b></div><div style="color:#64748b;">📅 Edad: <b style="color:#94a3b8;">{edad}</b></div><div style="color:#64748b;">🌍 País: <b style="color:#94a3b8;">{nacio}</b></div><div style="color:#64748b;">🦵 Perfil: <span class="{perf_class}" style="font-size:10px;padding:1px 7px;">{perfil}</span></div></div></div>',unsafe_allow_html=True)
 
-    # ── Exportación PDF: solo los jugadores tildados en el selector ──
+    # ── Exportación PDF: respeta lo que se ve en pantalla ──
+    # Vista Cards -> PDF en formato tarjetas (una card por jugador, como en pantalla).
+    # Vista Tabla -> PDF en tabla con color por posición (no una grilla gris tipo Excel).
     export_df=dff[dff[jcol].isin(seleccionados)] if seleccionados else dff
-    cols_pdf=[jcol,"_posiciones"]+[c for c in [perfil_col,nac_col,edad_col,nacio_col,temp_col] if c and c in export_df.columns]
-    tbl_pdf=export_df[cols_pdf].rename(columns={"_posiciones":"Posiciones"}).reset_index(drop=True)
-    pdf_btn("Historial de Jugadores",
-            kpis=[("Jugadores en PDF",len(tbl_pdf)),("Filtrados en pantalla",len(dff)),("Plantel total",len(df_agrup))],
-            tablas=[("Plantel seleccionado",tbl_pdf)],
-            notas=f"Exporta los {len(tbl_pdf)} jugadores tildados en el selector (de {len(dff)} que cumplen los filtros actuales). "
-                  f"Fuente: Google Sheets - hoja Historial.",
-            key="hist")
+    kpis_hist=[("Jugadores en PDF",len(export_df)),("Filtrados en pantalla",len(dff)),("Plantel total",len(df_agrup))]
+
+    if "🃏 Cards" in vista:
+        campos_tarjeta=[(c,l) for c,l in [("_posiciones","Posicion"),(perfil_col,"Perfil"),
+                        (nac_col,"Nac."),(edad_col,"Edad"),(nacio_col,"Pais"),(temp_col,"Periodo")]
+                        if c and c in export_df.columns]
+        pdf_btn("Historial de Jugadores", kpis=kpis_hist,
+                tarjetas_df=export_df, tarjetas_campos=campos_tarjeta, tarjetas_titulo_col=jcol,
+                tarjetas_seccion="Plantel seleccionado", tarjetas_por_fila=3,
+                notas=f"Exporta los {len(export_df)} jugadores tildados en el selector (de {len(dff)} que cumplen "
+                      f"los filtros actuales), en formato tarjetas. Fuente: Google Sheets - hoja Historial.",
+                key="hist")
+    else:
+        cols_pdf=[jcol,"_posiciones"]+[c for c in [perfil_col,nac_col,edad_col,nacio_col,temp_col] if c and c in export_df.columns]
+        tbl_pdf=export_df[cols_pdf].rename(columns={"_posiciones":"Posiciones"}).reset_index(drop=True)
+        pdf_btn("Historial de Jugadores", kpis=kpis_hist,
+                tablas=[("Plantel seleccionado",tbl_pdf)], color_cols=["Posiciones"],
+                notas=f"Exporta los {len(tbl_pdf)} jugadores tildados en el selector (de {len(dff)} que cumplen "
+                      f"los filtros actuales). Fuente: Google Sheets - hoja Historial.",
+                key="hist")
 
 # ══════════════════════════════════════════════════════════════
 # ESTADÍSTICAS MÉDICAS
@@ -1150,13 +1168,38 @@ def pagina_estadisticas_medicas():
     show_dff = show_dff[pri + resto]
 
     hl_cols = [dxt_col] if dxt_col and dxt_col in show_dff.columns else []
-    html_table(show_dff, highlight_cols=hl_cols, max_cols=20, key=f"em_tabla_{jsel}_{psel}_{tsel}")
+    html_table(show_dff, highlight_cols=hl_cols, key=f"em_tabla_{jsel}_{psel}_{tsel}")
+
+    # ── Gráfico embebido en el PDF (días perdidos x tipo de lesión) ──
+    grafico_bytes=None
+    if dxt_col and lesion_tipo_col and dxt_col in les_df.columns and lesion_tipo_col in les_df.columns:
+        try:
+            import matplotlib; matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+            import io as _io
+            _agg=les_df.groupby(lesion_tipo_col).apply(lambda g: to_num_col(g[dxt_col]).sum()).sort_values()
+            _agg=_agg[_agg>0].tail(10)
+            if len(_agg)>0:
+                fig_mp,ax_mp=plt.subplots(figsize=(7.3,max(1.8,0.4*len(_agg))),dpi=150)
+                ax_mp.barh(_agg.index.astype(str),_agg.values,color="#c8102e")
+                ax_mp.set_xlabel("Dias perdidos"); ax_mp.set_title("Dias perdidos por tipo de lesion",fontsize=10)
+                for i,v in enumerate(_agg.values):
+                    ax_mp.text(v,i,f" {v:.0f}",va="center",fontsize=8)
+                ax_mp.spines[["top","right"]].set_visible(False)
+                fig_mp.tight_layout()
+                buf=_io.BytesIO(); fig_mp.savefig(buf,format="png"); plt.close(fig_mp)
+                grafico_bytes=buf.getvalue()
+        except Exception:
+            grafico_bytes=None
 
     # ── Exportación PDF: refleja exactamente lo filtrado en pantalla ──
+    color_cols_pdf=[c for c in [tipo_col,lesion_tipo_col,est_col] if c and c in show_dff.columns]
     kpis_pdf=[("Registros",len(dff)),("Días perdidos",int(to_num_col(les_df[dxt_col]).sum()) if dxt_col and dxt_col in les_df.columns else "—"),
               ("Jugador",jsel if jsel!="Todas" else "Plantel completo")]
     pdf_btn("Estadisticas Medicas", kpis=kpis_pdf,
             tablas=[("Registros médicos" + (f" — {jsel}" if jsel!="Todas" else ""), show_dff)],
+            color_cols=color_cols_pdf,
+            graficos=[("Días perdidos por tipo de lesión", grafico_bytes)] if grafico_bytes else None,
             notas=f"Filtros activos: jugador={jsel}, posicion={psel}, tipo={tsel}, obs={osel}. "
                   f"{len(show_dff)} registros exportados. Fuente: Google Sheets - hoja Lesiones.",
             key="em")
