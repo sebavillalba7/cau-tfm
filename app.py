@@ -201,7 +201,7 @@ def expandir_temporadas(temp_str):
     separados por '/') y devuelve el set de años cubiertos. Tolera años sueltos
     ('YYYY') y separadores con espacios."""
     anios = set()
-    if temp_str is None or str(temp_str).strip().lower() in ("nan","none","—","","<na>"):
+    if temp_str is None or str(temp_str).strip().lower() in ("nan","none","-","","<na>"):
         return anios
     for parte in str(temp_str).split("/"):
         parte = parte.strip()
@@ -247,11 +247,11 @@ def html_table(df, highlight_cols=None, num_format=None, max_rows=15, height=420
     _tf, _tc = len(df), len(df.columns)
     if _tc > max_cols: df = df[list(df.columns)[:max_cols]]
     ver_todas = False
+    max_rows_efectivo = max_rows
     if _tf > max_rows:
-        k = key or f"showall_{abs(hash(tuple(map(str,df.columns))))%100000}_{_tf}"
-        ver_todas = st.checkbox(f"👁️ Ver las {min(_tf,VER_MAS_TOPE)} filas" + (f" (de {_tf})" if _tf>VER_MAS_TOPE else ""),
-                                key=k, value=False)
-    max_rows_efectivo = min(_tf, VER_MAS_TOPE) if ver_todas else max_rows
+        k = key or f"showrows_{abs(hash(tuple(map(str,df.columns))))%100000}_{_tf}"
+        tope = min(_tf, VER_MAS_TOPE)
+        max_rows_efectivo = st.slider("Filas a mostrar", min(5,tope), tope, min(max_rows,tope), key=k)
     if _tf > max_rows_efectivo: df = df.head(max_rows_efectivo)
     highlight_cols = highlight_cols or []
     num_format = num_format or {}
@@ -290,7 +290,7 @@ def html_table(df, highlight_cols=None, num_format=None, max_rows=15, height=420
                 fval = float(str(val).replace(",","."))
                 display = f"{fval:{fmt}}" if fmt else (f"{fval:.1f}" if fval != int(fval) else f"{int(fval)}")
             except:
-                display = str(val) if str(val) not in ["nan","None","<NA>"] else "—"
+                display = str(val) if str(val) not in ["nan","None","<NA>"] else "-"
             style = cell_color(col, val)
             cells += f'<td style="text-align:center;padding:9px 14px;border-bottom:1px solid rgba(255,255,255,0.05);white-space:nowrap;{style}">{display}</td>'
         rows_html += f"<tr>{cells}</tr>"
@@ -310,8 +310,7 @@ def html_table(df, highlight_cols=None, num_format=None, max_rows=15, height=420
         </div>
     </div>''', unsafe_allow_html=True)
     if _tf > max_rows_efectivo or _tc > max_cols:
-        st.caption(f"Mostrando {min(max_rows_efectivo,_tf)} de {_tf} filas y {min(max_cols,_tc)} de {_tc} columnas."
-                   + (" Tildá 'Ver filas' arriba para mostrar más." if _tf > max_rows_efectivo and not ver_todas else ""))
+        st.caption(f"Mostrando {min(max_rows_efectivo,_tf)} de {_tf} filas y {min(max_cols,_tc)} de {_tc} columnas.")
 
 def filtro_anio_widget(df, key):
     """Filtro multiselect de año. Retorna df filtrado."""
@@ -336,15 +335,15 @@ def kpi_card_contextual(label, val_jug, ref_df, col, unidad=""):
     - Abajo: min (rojo) y promedio (amarillo) del grupo de referencia (posición o todos)
     """
     vals = to_num_col(ref_df[col]).dropna() if col in ref_df.columns else pd.Series(dtype=float)
-    ref_min = f"{vals.min():.1f}{unidad}" if len(vals) > 0 else "—"
-    ref_avg = f"{vals.mean():.1f}{unidad}" if len(vals) > 0 else "—"
+    ref_min = f"{vals.min():.1f}{unidad}" if len(vals) > 0 else "-"
+    ref_avg = f"{vals.mean():.1f}{unidad}" if len(vals) > 0 else "-"
 
     if val_jug is not None and not pd.isna(val_jug):
         main_val = f"{val_jug:.1f}{unidad}"
     elif len(vals) > 0:
         main_val = f"{vals.mean():.1f}{unidad}"
     else:
-        main_val = "—"
+        main_val = "-"
 
     st.markdown(f"""
     <div class="kpi-card">
@@ -373,12 +372,12 @@ def pagina_login():
         st.markdown("<br>",unsafe_allow_html=True)
         _,col,_=st.columns([1,1.4,1])
         with col:
-            area_sel=st.selectbox("Área",["— Seleccioná tu área —"]+list(AREAS.keys()),key="l_area")
-            ua=usuarios_por_area(area_sel) if area_sel!="— Seleccioná tu área —" else []
-            us=st.selectbox("Usuario",["— Seleccioná —"]+ua,key="l_user",disabled=(area_sel=="— Seleccioná tu área —"))
+            area_sel=st.selectbox("Área",["- Seleccioná tu área -"]+list(AREAS.keys()),key="l_area")
+            ua=usuarios_por_area(area_sel) if area_sel!="- Seleccioná tu área -" else []
+            us=st.selectbox("Usuario",["- Seleccioná -"]+ua,key="l_user",disabled=(area_sel=="- Seleccioná tu área -"))
             pw=st.text_input("Contraseña",type="password",key="l_pwd",placeholder="Ingresá tu contraseña")
             if st.button("Ingresar →",use_container_width=True,key="btn_login"):
-                if us=="— Seleccioná —": st.error("Seleccioná un usuario.")
+                if us=="- Seleccioná -": st.error("Seleccioná un usuario.")
                 elif not pw: st.warning("Ingresá tu contraseña.")
                 else:
                     u=verificar_login(us,pw)
@@ -459,19 +458,19 @@ def pagina_home():
         if foto: st.markdown(f'<img src="data:image/jpeg;base64,{foto}" style="width:100%;border-radius:16px;border:2px solid rgba(200,16,46,.3);">',unsafe_allow_html=True)
         else: st.markdown('<div style="aspect-ratio:4/3;background:rgba(200,16,46,.06);border:2px dashed rgba(200,16,46,.25);border-radius:16px;display:flex;align-items:center;justify-content:center;color:#475569;font-size:13px;text-align:center;padding:20px;">📷 Subí la foto como<br><code>assets/foto_home.jpg</code></div>',unsafe_allow_html=True)
     with ct:
-        st.markdown('<div style="background:rgba(8,18,38,0.95);border:1px solid rgba(200,16,46,.2);border-radius:16px;padding:28px 32px;height:100%;box-sizing:border-box;"><div style="font-size:10px;color:#c8102e;font-weight:700;letter-spacing:3px;text-transform:uppercase;margin-bottom:10px;">Plataforma Tecnológica</div><div style="font-size:26px;font-weight:900;color:#fff;margin-bottom:16px;line-height:1.2;">Data Intelligence aplicada al rendimiento deportivo</div><div style="font-size:14px;color:#94a3b8;line-height:1.8;">Una plataforma centralizada que transforma datos físicos, médicos y tácticos en inteligencia accionable para el cuerpo técnico, el área médica y la secretaría técnica del Club A. Unión.<br><br>Desde el GPS en el campo hasta el modelo de riesgo de lesión con Machine Learning — toda la información del plantel en un solo lugar, en tiempo real.</div><div style="display:flex;gap:8px;margin-top:18px;flex-wrap:wrap;"><span class="chip">📡 GPS</span><span class="chip">🤖 Machine Learning</span><span class="chip">🏥 Gestión médica</span><span class="chip">📊 Reportes PDF</span><span class="chip">⚡ CMJ · Nórdico · VBT</span><span class="chip">⚽ API Fútbol</span></div></div>',unsafe_allow_html=True)
+        st.markdown('<div style="background:rgba(8,18,38,0.95);border:1px solid rgba(200,16,46,.2);border-radius:16px;padding:28px 32px;height:100%;box-sizing:border-box;"><div style="font-size:10px;color:#c8102e;font-weight:700;letter-spacing:3px;text-transform:uppercase;margin-bottom:10px;">Plataforma Tecnológica</div><div style="font-size:26px;font-weight:900;color:#fff;margin-bottom:16px;line-height:1.2;">Data Intelligence aplicada al rendimiento deportivo</div><div style="font-size:14px;color:#94a3b8;line-height:1.8;">Una plataforma centralizada que transforma datos físicos, médicos y tácticos en inteligencia accionable para el cuerpo técnico, el área médica y la secretaría técnica del Club A. Unión.<br><br>Desde el GPS en el campo hasta el modelo de riesgo de lesión con Machine Learning - toda la información del plantel en un solo lugar, en tiempo real.</div><div style="display:flex;gap:8px;margin-top:18px;flex-wrap:wrap;"><span class="chip">📡 GPS</span><span class="chip">🤖 Machine Learning</span><span class="chip">🏥 Gestión médica</span><span class="chip">📊 Reportes PDF</span><span class="chip">⚡ CMJ · Nórdico · VBT</span><span class="chip">⚽ API Fútbol</span></div></div>',unsafe_allow_html=True)
     st.markdown("---")
     st.markdown('<div class="sec-title">Resumen del plantel</div>',unsafe_allow_html=True)
     try:
         gps=cargar_sheet("gps");les=cargar_sheet("lesiones");jug=cargar_sheet("historial")
         c1,c2,c3,c4=st.columns(4)
-        c1.metric("👥 Jugadores",jug[jug_col_find(jug)].nunique() if not jug.empty else "—")
-        c2.metric("🏥 Registros médicos",len(les) if not les.empty else "—")
-        c3.metric("📡 Sesiones GPS",len(gps) if not gps.empty else "—")
+        c1.metric("👥 Jugadores",jug[jug_col_find(jug)].nunique() if not jug.empty else "-")
+        c2.metric("🏥 Registros médicos",len(les) if not les.empty else "-")
+        c3.metric("📡 Sesiones GPS",len(gps) if not gps.empty else "-")
         c4.metric("📅 Hoy",date.today().strftime("%d/%m/%Y"))
     except:
         c1,c2,c3,c4=st.columns(4)
-        for c,l in zip([c1,c2,c3,c4],["👥 Jugadores","🏥 Médicos","📡 GPS","📅 Hoy"]): c.metric(l,"—")
+        for c,l in zip([c1,c2,c3,c4],["👥 Jugadores","🏥 Médicos","📡 GPS","📅 Hoy"]): c.metric(l,"-")
     st.markdown(f'<div style="background:rgba(200,16,46,.07);border:1px solid rgba(200,16,46,.2);border-radius:14px;padding:18px 24px;margin-top:16px;"><div style="font-size:10px;color:#c8102e;font-weight:700;letter-spacing:2px;text-transform:uppercase;">Sesión activa</div><div style="font-size:20px;font-weight:800;color:#fff;margin:4px 0 4px;">{u["nombre"]} · {u["rol"]}</div><div style="font-size:13px;color:#94a3b8;">Área: <b style="color:#e2e8f0;">{u["area"]}</b> | Acceso a <b style="color:#e2e8f0;">{len(AREAS[u["area"]]["secciones"])}</b> secciones</div></div>',unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════
@@ -500,7 +499,7 @@ def pagina_historial():
         for nombre,grupo in df.groupby(jcol,as_index=False):
             row=grupo.iloc[0].copy()
             if pos_col: row["_posiciones"]=" / ".join(grupo[pos_col].dropna().astype(str).unique().tolist())
-            else: row["_posiciones"]="—"
+            else: row["_posiciones"]="-"
             result.append(row)
         return pd.DataFrame(result)
 
@@ -546,34 +545,49 @@ def pagina_historial():
     st.markdown(f'<div style="font-size:12px;color:#64748b;margin-bottom:12px;"><b style="color:#f87171;">{len(dff)}</b> jugadores (de {len(df_agrup)} en el plantel)</div>',unsafe_allow_html=True)
 
     # ── Selección de jugadores para exportar (aplica a Cards y a Tabla) ──
+    sel_key="hist_sel_set"
+    if sel_key not in st.session_state:
+        st.session_state[sel_key]=set(dff[jcol].tolist())
     cols_editor=[jcol,"_posiciones"]+[c for c in [perfil_col,edad_col,nacio_col,temp_col] if c and c in dff.columns]
     edit_src=dff[cols_editor].rename(columns={"_posiciones":"Posiciones"}).copy()
-    edit_src.insert(0,"Exportar",True)
+    edit_src.insert(0,"Exportar",edit_src[jcol].isin(st.session_state[sel_key]))
     with st.expander(f"✅ Seleccionar jugadores a incluir en el PDF ({len(dff)} filtrados)",expanded=False):
-        st.caption("Tildado = se incluye en la exportación. Por defecto están todos los filtrados.")
+        st.caption("Tildado = se incluye en la exportación. Usá los botones para armar listas (ej. los 23 del partido) sin clickear uno por uno.")
+        bc1,bc2,bc3=st.columns([1.4,1.6,3])
+        with bc1:
+            if st.button("✅ Todos",key="hist_sel_all",use_container_width=True,help="Tildar los jugadores filtrados"):
+                st.session_state[sel_key]=set(dff[jcol].tolist())
+                st.session_state.pop("hist_editor",None); st.rerun()
+        with bc2:
+            if st.button("⬜ Ninguno",key="hist_sel_none",use_container_width=True,help="Destildar todos"):
+                st.session_state[sel_key]=set()
+                st.session_state.pop("hist_editor",None); st.rerun()
+        with bc3:
+            st.caption(f"{len(st.session_state[sel_key] & set(dff[jcol].tolist()))} de {len(dff)} tildados")
         edit_out=st.data_editor(edit_src,use_container_width=True,hide_index=True,key="hist_editor",
                                 disabled=[c for c in edit_src.columns if c!="Exportar"],
                                 height=min(500,60+34*max(1,len(edit_src))))
-    seleccionados = edit_out[edit_out["Exportar"]][jcol].tolist()
+    st.session_state[sel_key]=set(edit_out[edit_out["Exportar"]][jcol].tolist())
+    seleccionados = list(st.session_state[sel_key])
 
     if "📋 Tabla" in vista:
         cols_show=[jcol,"_posiciones"]+[c for c in [perfil_col,nac_col,edad_col,nacio_col,temp_col] if c and c in dff.columns]
         tbl=dff[cols_show].rename(columns={"_posiciones":"Posiciones"}).reset_index(drop=True)
         # Antes st.dataframe mostraba "None" crudo para valores faltantes (feo, parece un bug de datos).
-        tbl_disp=tbl.astype(object).where(tbl.notna(), "—")
+        tbl_disp=tbl.astype(object).where(tbl.notna(), "-")
         for c in tbl_disp.columns:
-            tbl_disp[c]=tbl_disp[c].astype(str).replace({"nan":"—","None":"—","<NA>":"—","":"—"})
+            tbl_disp[c]=tbl_disp[c].astype(str).replace({"nan":"-","None":"-","<NA>":"-","":"-"})
         st.dataframe(tbl_disp,use_container_width=True,hide_index=True,height=min(600,60+34*max(1,len(tbl_disp))))
     else:
         cols_grid=st.columns(3)
         for i,(_,row) in enumerate(dff.iterrows()):
             with cols_grid[i%3]:
                 nombre=str(row[jcol])
-                posiciones=str(row.get("_posiciones","—"))
-                nac=str(row[nac_col]) if nac_col and nac_col in row.index and str(row[nac_col]) not in ["nan","None","<NA>"] else "—"
-                edad=str(row[edad_col]) if edad_col and edad_col in row.index and str(row[edad_col]) not in ["nan","None","<NA>"] else "—"
-                nacio=str(row[nacio_col]) if nacio_col and nacio_col in row.index and str(row[nacio_col]) not in ["nan","None","<NA>"] else "—"
-                perfil=str(row[perfil_col]) if perfil_col and perfil_col in row.index and str(row[perfil_col]) not in ["nan","None","<NA>"] else "—"
+                posiciones=str(row.get("_posiciones","-"))
+                nac=str(row[nac_col]) if nac_col and nac_col in row.index and str(row[nac_col]) not in ["nan","None","<NA>"] else "-"
+                edad=str(row[edad_col]) if edad_col and edad_col in row.index and str(row[edad_col]) not in ["nan","None","<NA>"] else "-"
+                nacio=str(row[nacio_col]) if nacio_col and nacio_col in row.index and str(row[nacio_col]) not in ["nan","None","<NA>"] else "-"
+                perfil=str(row[perfil_col]) if perfil_col and perfil_col in row.index and str(row[perfil_col]) not in ["nan","None","<NA>"] else "-"
                 foto_url=str(row[foto_col]) if foto_col and foto_col in row.index else "nan"
                 avatar=f'<img src="{foto_url}" style="width:56px;height:56px;border-radius:50%;object-fit:cover;border:2px solid rgba(200,16,46,.4);">' if foto_url.startswith("http") else '<div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,rgba(200,16,46,.2),rgba(200,16,46,.05));display:flex;align-items:center;justify-content:center;font-size:24px;border:2px solid rgba(200,16,46,.2);">👤</div>'
                 pos_chips="".join([f'<span class="chip">{p.strip()}</span>' for p in posiciones.split("/")])
@@ -610,11 +624,11 @@ def pagina_historial():
 # ══════════════════════════════════════════════════════════════
 
 # ══════════════════════════════════════════════════════════════
-# FIGURA HUMANA SVG — mapeo de lesiones
+# FIGURA HUMANA SVG - mapeo de lesiones
 # ══════════════════════════════════════════════════════════════
 
 # ══════════════════════════════════════════════════════════════
-# FIGURA HUMANA — imagen real con puntos superpuestos
+# FIGURA HUMANA - imagen real con puntos superpuestos
 # ══════════════════════════════════════════════════════════════
 import re as _re
 
@@ -723,7 +737,7 @@ ZONA_COORDS = {
 }
 
 def parsear_muscl_id(muscl_id: str) -> tuple:
-    if not muscl_id or str(muscl_id).upper() in ["NO-MUSC","NO MUSC","NA","NAN","—",""]:
+    if not muscl_id or str(muscl_id).upper() in ["NO-MUSC","NO MUSC","NA","NAN","-",""]:
         return None, None
     s = str(muscl_id).strip().upper()
     lado = "bilat"
@@ -784,7 +798,7 @@ def render_cuerpo_humano(df_jugador, region_col):
         "muslo_ext_der":  ("Leg Upper",  "front", "der"),
         "muslo_ext_izq":  ("Leg Upper",  "front", "izq"),
         "rodilla_der":    ("Knee s ",    "front", "izq"),  # ojo: en SVG frontal rodilla DER está en lado izq imagen
-        "rodilla_izq":    ("Knee s ",    "front", "der"),  # y viceversa — ajustado por centroide
+        "rodilla_izq":    ("Knee s ",    "front", "der"),  # y viceversa - ajustado por centroide
         "pierna_der":     ("Leg Lower",  "front", "der"),
         "pierna_izq":     ("Leg Lower",  "front", "izq"),
         "tobillo_der":    ("Ankle",      "front", "der"),
@@ -945,7 +959,7 @@ def pagina_estadisticas_medicas():
     lesion_tipo_col=next((c for c in df.columns if any(x in c.lower() for x in ["lesion","desgarro","tipo_les","tipo les"])),None)
     obs_col="OBSERVACIONES" if "OBSERVACIONES" in df.columns else None
 
-    # Filtros — réplica Power BI
+    # Filtros - réplica Power BI
     st.markdown('<div class="filter-bar">',unsafe_allow_html=True)
     fc=st.columns(5)
     jugs=["Todas"]+sorted(df[jcol].dropna().astype(str).unique().tolist())
@@ -969,6 +983,7 @@ def pagina_estadisticas_medicas():
     les_df=dff[dff[tipo_col].astype(str).str.upper()=="LESION"].copy() if tipo_col else dff.copy()
 
     # ── Avatar del jugador seleccionado (ficha individual) ──
+    foto_url_pdf,pos_v_pdf,edad_v_pdf,nacio_v_pdf=None,None,None,None
     if jsel!="Todas":
         hist=cargar_sheet("historial")
         if not hist.empty:
@@ -982,11 +997,13 @@ def pagina_estadisticas_medicas():
                 hnacio_col=next((c for c in hist.columns if any(x in c.lower() for x in ["nacion","pais","country"])),None)
                 foto_url=str(hrow[hfoto_col]) if hfoto_col and hfoto_col in hrow.index else "nan"
                 avatar=f'<img src="{foto_url}" style="width:72px;height:72px;border-radius:50%;object-fit:cover;border:3px solid rgba(200,16,46,.5);">' if foto_url.startswith("http") else '<div style="width:72px;height:72px;border-radius:50%;background:rgba(200,16,46,.15);display:flex;align-items:center;justify-content:center;font-size:36px;">👤</div>'
-                pos_v=str(hrow[hpos_col]) if hpos_col and hpos_col in hrow.index else "—"
-                edad_v=str(hrow[hedad_col]) if hedad_col and hedad_col in hrow.index else "—"
-                nacio_v=str(hrow[hnacio_col]) if hnacio_col and hnacio_col in hrow.index else "—"
+                pos_v=str(hrow[hpos_col]) if hpos_col and hpos_col in hrow.index else "-"
+                edad_v=str(hrow[hedad_col]) if hedad_col and hedad_col in hrow.index else "-"
+                nacio_v=str(hrow[hnacio_col]) if hnacio_col and hnacio_col in hrow.index else "-"
+                foto_url_pdf=foto_url if foto_url.startswith("http") else None
+                pos_v_pdf,edad_v_pdf,nacio_v_pdf=pos_v,edad_v,nacio_v
                 n_reg=len(dff)
-                dias_perdidos=int(to_num_col(les_df[dxt_col]).sum()) if dxt_col and dxt_col in les_df.columns else "—"
+                dias_perdidos=int(to_num_col(les_df[dxt_col]).sum()) if dxt_col and dxt_col in les_df.columns else "-"
                 st.markdown(f'<div style="background:rgba(8,18,38,.95);border:1px solid rgba(200,16,46,.25);border-radius:18px;padding:18px 22px;margin-bottom:14px;display:flex;align-items:center;gap:18px;">{avatar}<div><div style="font-family:\'Bebas Neue\',sans-serif;font-size:24px;letter-spacing:1.5px;color:#fff;">{jsel}</div><div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap;"><span class="chip">{pos_v}</span><span class="chip chip-blue">Edad: {edad_v}</span><span class="chip chip-green">{nacio_v}</span><span class="chip">📋 {n_reg} registros</span><span class="chip">🩹 {dias_perdidos} días perdidos</span></div></div></div>',unsafe_allow_html=True)
 
     # ── Fila 1: tabla incidencias (col izq) + días x año + tipo lesión (col der) ──
@@ -1018,7 +1035,7 @@ def pagina_estadisticas_medicas():
             plotly_dark(fig,180)
             st.plotly_chart(fig,use_container_width=True)
 
-        # Días perdidos x tipo lesión (donut) — lado a lado con clasificación
+        # Días perdidos x tipo lesión (donut) - lado a lado con clasificación
         g1, g2 = st.columns(2)
         with g1:
             if lesion_tipo_col and dxt_col:
@@ -1099,7 +1116,7 @@ def pagina_estadisticas_medicas():
                 return _re.sub(r'\s+(DER|IZQ|BILAT)$', '', str(v).strip().upper())
 
             les_sist = les_df[sist_col].dropna().astype(str)
-            les_sist = les_sist[~les_sist.str.upper().isin(["NO-MUSC","NO MUSC","NA","—","NAN"])]
+            les_sist = les_sist[~les_sist.str.upper().isin(["NO-MUSC","NO MUSC","NA","-","NAN"])]
             les_sist_base = les_sist.apply(base_musculo)
             vc_s = les_sist_base.value_counts().reset_index()
             vc_s.columns = ["Músculo","N°"]
@@ -1140,16 +1157,20 @@ def pagina_estadisticas_medicas():
             st.plotly_chart(fig5, use_container_width=True)
             st.markdown('</div>', unsafe_allow_html=True)
 
-    # ── Figura humana — solo cuando hay jugador seleccionado ──
+    # ── Figura humana - solo cuando hay jugador seleccionado ──
     if jsel != "Todas" and region_col:
         st.markdown("---")
-        st.markdown('<div class="subsec">🫀 Mapa corporal — lesiones de '  + jsel + '</div>',unsafe_allow_html=True)
+        st.markdown('<div class="subsec">🫀 Mapa corporal - lesiones de '  + jsel + '</div>',unsafe_allow_html=True)
         df_jug_les = dff[dff[jcol].astype(str) == jsel]
         render_cuerpo_humano(df_jug_les, region_col)
 
     st.markdown("---")
     st.markdown('<div class="subsec">Registros completos</div>',unsafe_allow_html=True)
-    show_dff = dff[[c for c in dff.columns if not c.startswith("_")]].copy()
+    # Columnas de bajo valor para el cuerpo medico/tecnico: se sacan de pantalla y del PDF
+    # para que las columnas importantes tengan mas espacio y el texto no se apriete.
+    COLS_OCULTAS_MEDICA = ["AÑO", "N°", "N", "PROF", "TEMP_PER", "FASE"]
+    show_dff = dff[[c for c in dff.columns if not c.startswith("_")
+                    and c.upper().replace(" ","_") not in [x.upper() for x in COLS_OCULTAS_MEDICA]]].copy()
     if dxt_col and dxt_col in show_dff.columns:
         show_dff[dxt_col] = to_num_col(show_dff[dxt_col])
 
@@ -1194,12 +1215,15 @@ def pagina_estadisticas_medicas():
 
     # ── Exportación PDF: refleja exactamente lo filtrado en pantalla ──
     color_cols_pdf=[c for c in [tipo_col,lesion_tipo_col,est_col] if c and c in show_dff.columns]
-    kpis_pdf=[("Registros",len(dff)),("Días perdidos",int(to_num_col(les_df[dxt_col]).sum()) if dxt_col and dxt_col in les_df.columns else "—"),
+    kpis_pdf=[("Registros",len(dff)),("Días perdidos",int(to_num_col(les_df[dxt_col]).sum()) if dxt_col and dxt_col in les_df.columns else "-"),
               ("Jugador",jsel if jsel!="Todas" else "Plantel completo")]
     pdf_btn("Estadisticas Medicas", kpis=kpis_pdf,
-            tablas=[("Registros médicos" + (f" — {jsel}" if jsel!="Todas" else ""), show_dff)],
+            tablas=[("Registros médicos" + (f" - {jsel}" if jsel!="Todas" else ""), show_dff)],
             color_cols=color_cols_pdf,
             graficos=[("Días perdidos por tipo de lesión", grafico_bytes)] if grafico_bytes else None,
+            ficha_nombre=jsel if jsel!="Todas" else None,
+            ficha_datos=[pos_v_pdf,f"Edad: {edad_v_pdf}" if edad_v_pdf else None,nacio_v_pdf],
+            ficha_foto_url=foto_url_pdf,
             notas=f"Filtros activos: jugador={jsel}, posicion={psel}, tipo={tsel}, obs={osel}. "
                   f"{len(show_dff)} registros exportados. Fuente: Google Sheets - hoja Lesiones.",
             key="em")
@@ -1209,18 +1233,12 @@ def pagina_estadisticas_medicas():
 # ══════════════════════════════════════════════════════════════
 def pagina_evaluaciones():
     st.markdown('<div class="sec-title">⚡ Evaluaciones Físicas</div>',unsafe_allow_html=True)
-    _tb=[]
-    for _h,_t in [("cmj","CMJ 2PP"),("cmj1pp","CMJ 1PP"),("nordico","Curl Nordico"),("vbt","VBT")]:
-        try:
-            _d=cargar_sheet(_h)
-            if _d is not None and not _d.empty: _tb.append((_t,_d))
-        except Exception: pass
-    if _tb:
-        pdf_btn("Evaluaciones Fisicas",kpis=[(f"{_t} regs.",len(_d)) for _t,_d in _tb],
-                tablas=_tb,orientacion="L",key="eval",
-                notas="Tests de fuerza y potencia. Fuente: Google Sheets (CMJ 2PP, CMJ 1PP, Nordico, VBT).")
-    else:
-        pdf_btn("Evaluaciones Fisicas",notas="No hay datos de evaluaciones disponibles.",key="eval")
+    st.markdown(
+        '<div style="background:rgba(26,90,180,0.08);border:1px solid rgba(26,90,180,0.25);'
+        'border-radius:12px;padding:10px 16px;margin-bottom:12px;font-size:11.5px;color:#94a3b8;">'
+        '💡 Cada pestaña exporta <b style="color:#93c5fd;">su propio test filtrado</b> (jugador/posición/año '
+        'que tengas seleccionados ahí), no las cuatro evaluaciones del plantel completo juntas.</div>',
+        unsafe_allow_html=True)
 
     tab1,tab2,tab3,tab4=st.tabs(["🦵 CMJ 2PP","🏃 CMJ 1PP","💪 Curl Nórdico","⚡ VBT"])
 
@@ -1233,10 +1251,12 @@ def pagina_evaluaciones():
         with ci:
             if cmj_img: st.markdown(f'<img src="data:image/png;base64,{cmj_img}" style="width:100%;max-width:180px;border-radius:12px;filter:drop-shadow(0 0 12px rgba(200,16,46,.3));">',unsafe_allow_html=True)
         with cd:
-            st.markdown('<div style="background:rgba(8,18,38,.9);border:1px solid rgba(200,16,46,.2);border-radius:12px;padding:16px;"><div style="font-size:14px;font-weight:800;color:#fff;margin-bottom:6px;">CMJ — Counter Movement Jump</div><div style="font-size:12px;color:#94a3b8;line-height:1.6;">Evalúa potencia explosiva del tren inferior. Variables: <b style="color:#e2e8f0;">Altura · ECC PP · RSI-m · Conc Peak Force</b></div></div>',unsafe_allow_html=True)
+            st.markdown('<div style="background:rgba(8,18,38,.9);border:1px solid rgba(200,16,46,.2);border-radius:12px;padding:16px;"><div style="font-size:14px;font-weight:800;color:#fff;margin-bottom:6px;">CMJ - Counter Movement Jump</div><div style="font-size:12px;color:#94a3b8;line-height:1.6;">Evalúa potencia explosiva del tren inferior. Variables: <b style="color:#e2e8f0;">Altura · ECC PP · RSI-m · Conc Peak Force</b></div></div>',unsafe_allow_html=True)
 
         df=cargar_sheet("cmj")
-        if df.empty: no_data("CMJ")
+        if df.empty:
+            no_data("CMJ")
+            pdf_btn("Evaluaciones Fisicas - CMJ 2PP",notas="No hay datos de CMJ disponibles.",key="cmj2pp")
         else:
             jcol=jug_col_find(df); pos_col=pos_col_find(df)
             # Columnas específicas CMJ
@@ -1303,7 +1323,8 @@ def pagina_evaluaciones():
             tbl=dff if jsel=="Todos" else dff[dff[jcol].astype(str)==jsel]
             tbl=tbl[[c for c in show_cols if c in tbl.columns]].sort_values(ALT,ascending=False) if ALT in tbl.columns else tbl
             num_cols_tbl=[c for c in [ALT,ECC,RSI,CPF] if c in tbl.columns]
-            html_table(tbl.reset_index(drop=True), highlight_cols=num_cols_tbl)
+            tbl=tbl.reset_index(drop=True)
+            html_table(tbl, highlight_cols=num_cols_tbl, key=f"cmj2pp_tabla_{jsel}_{pos_sel}")
 
             # Gráfico comparativo barras por jugador
             if ALT in dff.columns and len(dff[jcol].unique())>1:
@@ -1318,6 +1339,15 @@ def pagina_evaluaciones():
                 plotly_dark(fig_bar,320)
                 st.plotly_chart(fig_bar,use_container_width=True)
 
+            # ── Exportación PDF: solo el test/jugador/posición filtrado en esta pestaña ──
+            kpis_cmj2=[("Registros",len(tbl)),("Jugador",jsel),("Posición",pos_sel)]
+            pdf_btn("Evaluaciones Fisicas - CMJ 2PP", kpis=kpis_cmj2,
+                    tablas=[("CMJ 2PP" + (f" - {jsel}" if jsel!="Todos" else ""), tbl)],
+                    color_cols=[pos_col] if pos_col else None,
+                    ficha_nombre=jsel if jsel!="Todos" else None,
+                    notas=f"Filtros activos: jugador={jsel}, posicion={pos_sel}. {len(tbl)} registros exportados.",
+                    key="cmj2pp")
+
     # ──────────────────────────────────────────────────────────
     # CMJ 1PP
     # ──────────────────────────────────────────────────────────
@@ -1327,10 +1357,12 @@ def pagina_evaluaciones():
         with ci:
             if cmj1_img: st.markdown(f'<img src="data:image/png;base64,{cmj1_img}" style="width:100%;max-width:180px;border-radius:12px;filter:drop-shadow(0 0 12px rgba(200,16,46,.3));">',unsafe_allow_html=True)
         with cd:
-            st.markdown('<div style="background:rgba(8,18,38,.9);border:1px solid rgba(200,16,46,.2);border-radius:12px;padding:16px;"><div style="font-size:14px;font-weight:800;color:#fff;margin-bottom:6px;">CMJ 1PP — Una Pierna</div><div style="font-size:12px;color:#94a3b8;line-height:1.6;">Evalúa asimetría entre piernas. Asym >10% indica riesgo. Variables: <b style="color:#e2e8f0;">ALT DER · ALT IZQ · ASYM%</b></div></div>',unsafe_allow_html=True)
+            st.markdown('<div style="background:rgba(8,18,38,.9);border:1px solid rgba(200,16,46,.2);border-radius:12px;padding:16px;"><div style="font-size:14px;font-weight:800;color:#fff;margin-bottom:6px;">CMJ 1PP - Una Pierna</div><div style="font-size:12px;color:#94a3b8;line-height:1.6;">Evalúa asimetría entre piernas. Asym >10% indica riesgo. Variables: <b style="color:#e2e8f0;">ALT DER · ALT IZQ · ASYM%</b></div></div>',unsafe_allow_html=True)
 
         df=cargar_sheet("cmj1pp")
-        if df.empty: no_data("CMJ 1 Pierna")
+        if df.empty:
+            no_data("CMJ 1 Pierna")
+            pdf_btn("Evaluaciones Fisicas - CMJ 1PP",notas="No hay datos de CMJ 1PP disponibles.",key="cmj1pp")
         else:
             jcol=jug_col_find(df); pos_col=pos_col_find(df)
             L_COL="Jump Height (Imp-Mom) [cm] (L)"
@@ -1406,7 +1438,16 @@ def pagina_evaluaciones():
             if fecha_col: show=[fecha_col]+show
             tbl=tbl[[c for c in show if c in tbl.columns]].reset_index(drop=True)
             num_c=[c for c in [L_COL,R_COL,ASYM_COL] if c in tbl.columns]
-            html_table(tbl, highlight_cols=num_c)
+            html_table(tbl, highlight_cols=num_c, key=f"cmj1pp_tabla_{jsel}_{pos_sel}")
+
+            # ── Exportación PDF: solo el test/jugador/posición filtrado en esta pestaña ──
+            kpis_cmj1=[("Registros",len(tbl)),("Jugador",jsel),("Posición",pos_sel)]
+            pdf_btn("Evaluaciones Fisicas - CMJ 1PP", kpis=kpis_cmj1,
+                    tablas=[("CMJ 1PP" + (f" - {jsel}" if jsel!="Todos" else ""), tbl)],
+                    color_cols=[pos_col] if pos_col else None,
+                    ficha_nombre=jsel if jsel!="Todos" else None,
+                    notas=f"Filtros activos: jugador={jsel}, posicion={pos_sel}. {len(tbl)} registros exportados.",
+                    key="cmj1pp")
 
     # ──────────────────────────────────────────────────────────
     # CURL NÓRDICO
@@ -1417,11 +1458,13 @@ def pagina_evaluaciones():
         with ci:
             if nord_img: st.markdown(f'<img src="data:image/png;base64,{nord_img}" style="width:100%;max-width:180px;border-radius:12px;filter:drop-shadow(0 0 12px rgba(200,16,46,.3));">',unsafe_allow_html=True)
         with cd:
-            st.markdown('<div style="background:rgba(8,18,38,.9);border:1px solid rgba(200,16,46,.2);border-radius:12px;padding:16px;"><div style="font-size:14px;font-weight:800;color:#fff;margin-bottom:6px;">Curl Nórdico — Nordic Hamstring</div><div style="font-size:12px;color:#94a3b8;line-height:1.6;">Fuerza excéntrica de isquiotibiales. Variables: <b style="color:#e2e8f0;">FZA DER (N) · FZA IZQ (N) · Asym% · Masa Alcanzada%</b>. Asym >15% = riesgo elevado.</div></div>',unsafe_allow_html=True)
+            st.markdown('<div style="background:rgba(8,18,38,.9);border:1px solid rgba(200,16,46,.2);border-radius:12px;padding:16px;"><div style="font-size:14px;font-weight:800;color:#fff;margin-bottom:6px;">Curl Nórdico - Nordic Hamstring</div><div style="font-size:12px;color:#94a3b8;line-height:1.6;">Fuerza excéntrica de isquiotibiales. Variables: <b style="color:#e2e8f0;">FZA DER (N) · FZA IZQ (N) · Asym% · Masa Alcanzada%</b>. Asym >15% = riesgo elevado.</div></div>',unsafe_allow_html=True)
 
         df_nord=cargar_sheet("nordico")
         df_cmj=cargar_sheet("cmj")  # Para calcular BW (PesoPorTestID)
-        if df_nord.empty: no_data("Curl Nórdico")
+        if df_nord.empty:
+            no_data("Curl Nórdico")
+            pdf_btn("Evaluaciones Fisicas - Curl Nordico",notas="No hay datos de Curl Nordico disponibles.",key="nordico")
         else:
             jcol=jug_col_find(df_nord); pos_col=pos_col_find(df_nord)
             L_N="L Max Force (N)"
@@ -1526,15 +1569,26 @@ def pagina_evaluaciones():
             if fecha_col: show=[fecha_col]+show
             tbl=tbl[[c for c in show if c in tbl.columns]].reset_index(drop=True)
             num_c=[c for c in [L_N,R_N,ASYM_N,"MasaAlcanzada%"] if c in tbl.columns]
-            html_table(tbl, highlight_cols=num_c)
+            html_table(tbl, highlight_cols=num_c, key=f"nordico_tabla_{jsel}_{pos_sel}")
+
+            # ── Exportación PDF: solo el test/jugador/posición filtrado en esta pestaña ──
+            kpis_nord=[("Registros",len(tbl)),("Jugador",jsel),("Posición",pos_sel)]
+            pdf_btn("Evaluaciones Fisicas - Curl Nordico", kpis=kpis_nord,
+                    tablas=[("Curl Nordico" + (f" - {jsel}" if jsel!="Todos" else ""), tbl)],
+                    color_cols=[pos_col] if pos_col else None,
+                    ficha_nombre=jsel if jsel!="Todos" else None,
+                    notas=f"Filtros activos: jugador={jsel}, posicion={pos_sel}. {len(tbl)} registros exportados.",
+                    key="nordico")
 
     # ──────────────────────────────────────────────────────────
     # VBT
     # ──────────────────────────────────────────────────────────
     with tab4:
-        st.markdown('<div style="background:rgba(8,18,38,.9);border:1px solid rgba(200,16,46,.2);border-radius:12px;padding:16px;margin-bottom:12px;"><div style="font-size:14px;font-weight:800;color:#fff;margin-bottom:6px;">⚡ VBT — Velocity Based Training</div><div style="font-size:12px;color:#94a3b8;line-height:1.6;">Entrenamiento basado en velocidad. Monitorea la pérdida de velocidad para controlar fatiga y carga de fuerza.</div></div>',unsafe_allow_html=True)
+        st.markdown('<div style="background:rgba(8,18,38,.9);border:1px solid rgba(200,16,46,.2);border-radius:12px;padding:16px;margin-bottom:12px;"><div style="font-size:14px;font-weight:800;color:#fff;margin-bottom:6px;">⚡ VBT - Velocity Based Training</div><div style="font-size:12px;color:#94a3b8;line-height:1.6;">Entrenamiento basado en velocidad. Monitorea la pérdida de velocidad para controlar fatiga y carga de fuerza.</div></div>',unsafe_allow_html=True)
         df=cargar_sheet("vbt")
-        if df.empty: no_data("VBT")
+        if df.empty:
+            no_data("VBT")
+            pdf_btn("Evaluaciones Fisicas - VBT",notas="No hay datos de VBT disponibles.",key="vbt")
         else:
             jcol=jug_col_find(df); pos_col=pos_col_find(df)
             st.markdown('<div class="filter-bar">',unsafe_allow_html=True)
@@ -1550,96 +1604,17 @@ def pagina_evaluaciones():
                 if jsel!="Todos": dff=dff[dff[jcol].astype(str)==jsel]
             st.markdown('</div>',unsafe_allow_html=True)
             num_cols=[c for c in dff.columns if to_num_col(dff[c]).notna().sum()>len(dff)*0.3 and c not in ["AÑO","_fecha"]]
-            html_table(dff.reset_index(drop=True), highlight_cols=num_cols[:4] if len(num_cols)>4 else num_cols)
+            tbl=dff.reset_index(drop=True)
+            html_table(tbl, highlight_cols=num_cols[:4] if len(num_cols)>4 else num_cols, key=f"vbt_tabla_{jsel}_{pos_sel}")
 
-# ══════════════════════════════════════════════════════════════
-# DEMANDAS FÍSICAS
-# ══════════════════════════════════════════════════════════════
-def pagina_demandas():
-    st.markdown('<div class="sec-title">📡 Demandas Físicas — GPS</div>',unsafe_allow_html=True)
-    pdf_btn()
-    df=cargar_sheet("gps")
-    if df.empty: no_data("GPS"); return
-
-    jcol=jug_col_find(df); pos_col=pos_col_find(df)
-    fecha_col=next((c for c in df.columns if "fecha" in c.lower() and "_" not in c.lower()),None)
-    dist_col=next((c for c in df.columns if "dist" in c.lower() or "tot" in c.lower()),None)
-
-    tab1,tab2,tab3=st.tabs(["📊 Microciclo","👤 Individual","📈 Ratio A:C"])
-
-    with tab1:
-        st.markdown('<div class="filter-bar">',unsafe_allow_html=True)
-        fc1,fc2,fc3=st.columns(3)
-        with fc1: dff,_=filtro_anio_widget(df,"gps_mic")
-        with fc2:
-            if fecha_col and "AÑO" in dff.columns:
-                dff["_f"]=pd.to_datetime(dff[fecha_col],dayfirst=True,errors="coerce")
-                dff["_sem"]=dff["_f"].dt.isocalendar().week
-                sems=["Todas"]+sorted(dff["_sem"].dropna().unique().astype(int).tolist())
-                ssel=st.selectbox("Semana",sems,key="gps_sem")
-                if ssel!="Todas": dff=dff[dff["_sem"]==int(ssel)]
-        with fc3:
-            jugs=["Todos"]+sorted(dff[jcol].dropna().astype(str).unique().tolist())
-            jsel=st.selectbox("Jugador",jugs,key="gps_mic_jug")
-            if jsel!="Todos": dff=dff[dff[jcol].astype(str)==jsel]
-        st.markdown('</div>',unsafe_allow_html=True)
-
-        c1,c2,c3,c4=st.columns(4)
-        c1.metric("📋 Sesiones",len(dff)); c2.metric("👥 Jugadores",dff[jcol].nunique())
-        if dist_col:
-            dvals=to_num_col(dff[dist_col])
-            c3.metric("📏 Dist. Total",f"{int(dvals.sum()):,}m" if not dvals.isna().all() else "—")
-            c4.metric("📏 Dist. Prom.",f"{int(dvals.mean()):,}m" if not dvals.isna().all() else "—")
-
-        if dist_col and fecha_col:
-            dff2=dff.copy()
-            dff2["_f"]=pd.to_datetime(dff2[fecha_col],dayfirst=True,errors="coerce")
-            dff2[dist_col]=to_num_col(dff2[dist_col])
-            dff2=dff2.dropna(subset=["_f",dist_col]).sort_values("_f")
-            if not dff2.empty:
-                fig=px.bar(dff2,x="_f",y=dist_col,color=jcol,template="plotly_dark",
-                          labels={"_f":"Fecha",dist_col:"Distancia (m)"},
-                          color_discrete_sequence=px.colors.sequential.Reds_r)
-                plotly_dark(fig,320)
-                st.plotly_chart(fig,use_container_width=True)
-        num_cols=[c for c in dff.columns if to_num_col(dff[c]).notna().sum()>len(dff)*0.3 and c not in ["AÑO","_fecha","_sem","_f"]]
-        show_gps=dff[[c for c in dff.columns if not c.startswith("_")]].reset_index(drop=True)
-        html_table(show_gps, highlight_cols=num_cols[:5])
-
-    with tab2:
-        jug_ind=st.selectbox("Jugador",sorted(df[jcol].dropna().astype(str).unique().tolist()),key="gps_ind")
-        dfi=df[df[jcol].astype(str)==jug_ind].copy()
-        num_cols=[c for c in dfi.columns if to_num_col(dfi[c]).notna().sum()>len(dfi)*0.3 and c not in ["AÑO","_fecha"]]
-        cs=st.columns(min(4,len(num_cols)))
-        for i,col in enumerate(num_cols[:4]):
-            vals=to_num_col(dfi[col]).dropna()
-            cs[i].metric(col[:20],round(vals.mean(),1) if len(vals)>0 else "—")
-        if fecha_col and dist_col:
-            dfi["_f"]=pd.to_datetime(dfi[fecha_col],dayfirst=True,errors="coerce")
-            dfi[dist_col]=to_num_col(dfi[dist_col])
-            dfi=dfi.dropna(subset=["_f",dist_col]).sort_values("_f")
-            fig=px.line(dfi,x="_f",y=dist_col,template="plotly_dark",markers=True,labels={"_f":"Fecha",dist_col:"Distancia (m)"})
-            fig.update_traces(line_color="#c8102e",marker_color="#fff")
-            plotly_dark(fig,300)
-            st.plotly_chart(fig,use_container_width=True)
-
-    with tab3:
-        if dist_col and fecha_col:
-            jug_ac=st.selectbox("Jugador",sorted(df[jcol].dropna().astype(str).unique().tolist()),key="gps_ac")
-            dfac=df[df[jcol].astype(str)==jug_ac].copy()
-            dfac["_f"]=pd.to_datetime(dfac[fecha_col],dayfirst=True,errors="coerce")
-            dfac[dist_col]=to_num_col(dfac[dist_col])
-            dfac=dfac.dropna(subset=["_f",dist_col]).sort_values("_f").set_index("_f")
-            dfac["aguda"]=dfac[dist_col].rolling("7D").sum()
-            dfac["cronica"]=dfac[dist_col].rolling("28D").mean()*7
-            dfac["ratio_ac"]=(dfac["aguda"]/dfac["cronica"].replace(0,float("nan"))).round(2)
-            dfac=dfac.reset_index()
-            fig=px.line(dfac,x="_f",y="ratio_ac",template="plotly_dark",labels={"_f":"Fecha","ratio_ac":"Ratio A:C"})
-            fig.add_hline(y=0.8,line_dash="dot",line_color="#4ade80",annotation_text="Óptimo 0.8")
-            fig.add_hline(y=1.3,line_dash="dot",line_color="#f87171",annotation_text="Riesgo 1.3")
-            fig.update_traces(line_color="#c8102e")
-            plotly_dark(fig,320)
-            st.plotly_chart(fig,use_container_width=True)
+            # ── Exportación PDF: solo el filtrado en esta pestaña ──
+            kpis_vbt=[("Registros",len(tbl)),("Jugador",jsel),("Posición",pos_sel)]
+            pdf_btn("Evaluaciones Fisicas - VBT", kpis=kpis_vbt,
+                    tablas=[("VBT" + (f" - {jsel}" if jsel!="Todos" else ""), tbl)],
+                    color_cols=[pos_col] if pos_col else None,
+                    ficha_nombre=jsel if jsel!="Todos" else None,
+                    notas=f"Filtros activos: jugador={jsel}, posicion={pos_sel}. {len(tbl)} registros exportados.",
+                    key="vbt")
 
 # ══════════════════════════════════════════════════════════════
 # CONTROL DE PARTIDOS
@@ -1661,15 +1636,15 @@ def pagina_control_partidos():
     c1,c2,c3=st.columns(3)
     c1.metric("📋 Registros",len(dff))
     min_col=next((c for c in dff.columns if "min" in c.lower()),None)
-    min_tot,min_prom="—","—"
+    min_tot,min_prom="-","-"
     if min_col:
         mvals=to_num_col(dff[min_col])
-        min_tot=int(mvals.sum()) if not mvals.isna().all() else "—"
-        min_prom=round(mvals.mean(),1) if not mvals.isna().all() else "—"
+        min_tot=int(mvals.sum()) if not mvals.isna().all() else "-"
+        min_prom=round(mvals.mean(),1) if not mvals.isna().all() else "-"
         c2.metric("⏱️ Min. totales",min_tot)
         c3.metric("⏱️ Min. promedio",min_prom)
 
-    st.markdown('<div style="background:rgba(26,90,180,0.08);border:1px solid rgba(26,90,180,0.2);border-radius:12px;padding:14px;margin:12px 0;"><div style="font-size:12px;font-weight:700;color:#93c5fd;margin-bottom:4px;">🔌 API de Fútbol Argentino — Próximamente</div><div style="font-size:12px;color:#64748b;">Integración con <b style="color:#e2e8f0;">API-Football</b> para estadísticas de Liga Profesional en tiempo real.</div></div>',unsafe_allow_html=True)
+    st.markdown('<div style="background:rgba(26,90,180,0.08);border:1px solid rgba(26,90,180,0.2);border-radius:12px;padding:14px;margin:12px 0;"><div style="font-size:12px;font-weight:700;color:#93c5fd;margin-bottom:4px;">🔌 API de Fútbol Argentino - Próximamente</div><div style="font-size:12px;color:#64748b;">Integración con <b style="color:#e2e8f0;">API-Football</b> para estadísticas de Liga Profesional en tiempo real.</div></div>',unsafe_allow_html=True)
     num_p=[c for c in dff.columns if to_num_col(dff[c]).notna().sum()>len(dff)*0.3 and c not in ["AÑO","_fecha"]]
     show_p=dff[[c for c in dff.columns if not c.startswith("_")]].reset_index(drop=True)
     html_table(show_p, highlight_cols=num_p, max_cols=20, key=f"part_tabla_{jsel}")
@@ -1685,6 +1660,13 @@ def pagina_control_partidos():
 # ══════════════════════════════════════════════════════════════
 def pagina_resumen():
     st.markdown('<div class="sec-title">📄 Resumen Individual</div>',unsafe_allow_html=True)
+    st.markdown(
+        '<div style="background:rgba(26,90,180,0.08);border:1px solid rgba(26,90,180,0.25);'
+        'border-radius:12px;padding:10px 16px;margin-bottom:12px;font-size:11.5px;color:#94a3b8;">'
+        '💡 Esta es la única página pensada para el <b style="color:#93c5fd;">informe individual completo</b>: '
+        'combina GPS, CMJ, Nórdico, VBT y lesiones de un jugador en un solo PDF con KPIs y gráficos de evolución. '
+        'Las demás páginas (Evaluaciones, Demandas Físicas, etc.) exportan solo su propia sección.</div>',
+        unsafe_allow_html=True)
     hist=cargar_sheet("historial")
     if hist.empty:
         no_data("Historial")
@@ -1696,6 +1678,7 @@ def pagina_resumen():
     with c1: jsel=st.selectbox("Jugador",jugadores,key="res_jug")
     with c2: secs=st.multiselect("Incluir",["GPS","CMJ","Nórdico","Lesiones","VBT"],default=["GPS","CMJ","Lesiones"],key="res_secs")
 
+    pos,edad,nacio,foto_url="-","-","-","nan"
     row_df=hist[hist[jcol].astype(str)==jsel]
     if len(row_df)>0:
         row=row_df.iloc[0]
@@ -1703,68 +1686,148 @@ def pagina_resumen():
         edad_col=next((c for c in hist.columns if "edad" in c.lower()),None)
         nacio_col=next((c for c in hist.columns if "nacion" in c.lower() or "pais" in c.lower()),None)
         foto_col=next((c for c in hist.columns if "foto" in c.lower() or "url" in c.lower()),None)
-        pos=str(row[pos_col]) if pos_col else "—"
-        edad=str(row[edad_col]) if edad_col else "—"
-        nacio=str(row[nacio_col]) if nacio_col else "—"
+        pos=str(row[pos_col]) if pos_col else "-"
+        edad=str(row[edad_col]) if edad_col else "-"
+        nacio=str(row[nacio_col]) if nacio_col else "-"
         foto_url=str(row[foto_col]) if foto_col else "nan"
         avatar=f'<img src="{foto_url}" style="width:90px;height:90px;border-radius:50%;object-fit:cover;border:3px solid rgba(200,16,46,.5);">' if foto_url.startswith("http") else '<div style="width:90px;height:90px;border-radius:50%;background:rgba(200,16,46,.15);display:flex;align-items:center;justify-content:center;font-size:48px;">👤</div>'
         st.markdown(f'<div style="background:rgba(8,18,38,.95);border:1px solid rgba(200,16,46,.25);border-radius:20px;padding:24px;margin:12px 0;display:flex;align-items:center;gap:20px;">{avatar}<div><div style="font-family:\'Bebas Neue\',sans-serif;font-size:32px;letter-spacing:2px;color:#fff;">{jsel}</div><div style="margin-top:8px;"><span class="chip">{pos}</span><span class="chip chip-blue">{nacio}</span><span class="chip chip-green">Edad: {edad}</span></div></div></div>',unsafe_allow_html=True)
 
-    tablas_pdf=[]  # se llena con los datos REALES filtrados a jsel, para que el PDF coincida con la pantalla
-    kpis_pdf=[("Jugador",jsel)]
+    # El PDF muestra lo mismo que la pantalla: KPIs (promedio/maximo) + evolucion + ultimos
+    # registros de cada seccion. Antes volcaba la historia COMPLETA de cada seccion (cientos
+    # de filas por jugador) como tabla cruda -> PDFs de decenas de paginas ilegibles.
+    tablas_pdf=[]
+    graficos_pdf=[]
+    kpis_pdf=[]
+    ULTIMOS_N=10
 
-    def mostrar_sec(key,label):
+    def _grafico_evolucion(ds,fecha_col,series,titulo):
+        try:
+            import matplotlib; matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+            import io as _io
+            d=ds.dropna(subset=[fecha_col]).sort_values(fecha_col)
+            if len(d)<2: return None
+            fig,ax=plt.subplots(figsize=(7.3,2.7),dpi=150)
+            hubo=False
+            for col,label,color,ls in series:
+                if col not in d.columns: continue
+                y=to_num_col(d[col])
+                if y.notna().sum()<2: continue
+                ax.plot(d[fecha_col],y,marker="o",markersize=3,linewidth=1.6,label=label,color=color,linestyle=ls)
+                hubo=True
+            if not hubo: return None
+            ax.set_title(titulo,fontsize=9); ax.legend(fontsize=7,frameon=False)
+            ax.tick_params(labelsize=6); ax.spines[["top","right"]].set_visible(False)
+            fig.autofmt_xdate(rotation=40)
+            fig.tight_layout()
+            buf=_io.BytesIO(); fig.savefig(buf,format="png"); plt.close(fig)
+            return buf.getvalue()
+        except Exception:
+            return None
+
+    def _seccion_generica(key,label,icono):
+        """GPS y VBT: KPIs promedio + tabla de los ultimos N registros (no la historia completa)."""
+        st.markdown(f'<div class="subsec">{icono} {label}</div>',unsafe_allow_html=True)
         d=cargar_sheet(key)
-        if d.empty: return None
+        if d.empty: st.info(f"Sin datos de {label}."); return
         jc=jug_col_find(d)
         ds=d[d[jc].astype(str).str.lower()==jsel.lower()]
-        if ds.empty: st.info(f"Sin datos de {label}."); return None
+        if ds.empty: st.info(f"Sin datos de {label}."); return
         num_cols=[c for c in ds.columns if to_num_col(ds[c]).notna().sum()>len(ds)*0.2 and c not in ["AÑO","_fecha"]]
-        cs=st.columns(min(4,len(num_cols)))
+        cs=st.columns(min(4,len(num_cols))) if num_cols else []
+        kp=[]
         for i,col in enumerate(num_cols[:4]):
             vals=to_num_col(ds[col]).dropna()
-            cs[i].metric(col[:20],round(vals.mean(),2) if len(vals)>0 else "—")
-        return ds
+            m=round(vals.mean(),2) if len(vals)>0 else "-"
+            if cs: cs[i].metric(col[:20],m)
+            kp.append((col[:16],m))
+        kpis_pdf.append((f"Registros {label}",len(ds))); kpis_pdf.extend(kp[:3])
+        fc="FECHA" if "FECHA" in ds.columns else None
+        recientes=(ds.sort_values(fc) if fc else ds).tail(ULTIMOS_N)
+        tablas_pdf.append((f"{label} - ultimos {len(recientes)} de {len(ds)} registros",
+                           recientes[[c for c in recientes.columns if not c.startswith("_")]]))
 
-    if "GPS" in secs:
-        st.markdown('<div class="subsec">📡 GPS</div>',unsafe_allow_html=True)
-        ds=mostrar_sec("gps","GPS")
-        if ds is not None:
-            kpis_pdf.append(("Sesiones GPS",len(ds)))
-            tablas_pdf.append(("GPS", ds[[c for c in ds.columns if not c.startswith("_")]]))
+    if "GPS" in secs: _seccion_generica("gps","GPS","📡")
+    if "VBT" in secs: _seccion_generica("vbt","VBT","⚡")
+
     if "CMJ" in secs:
         st.markdown('<div class="subsec">🦵 CMJ</div>',unsafe_allow_html=True)
-        ds=mostrar_sec("cmj","CMJ")
-        if ds is not None:
-            kpis_pdf.append(("Registros CMJ",len(ds)))
-            tablas_pdf.append(("CMJ", ds[[c for c in ds.columns if not c.startswith("_")]]))
+        d=cargar_sheet("cmj")
+        jc=jug_col_find(d) if not d.empty else None
+        ds=d[d[jc].astype(str).str.lower()==jsel.lower()] if jc else pd.DataFrame()
+        if ds.empty:
+            st.info("Sin datos de CMJ.")
+        else:
+            ALT="Jump Height (Imp-Mom) [cm]"; RSI="RSI-modified [m/s]"
+            ECC="Eccentric Peak Power / BM [W/kg]"; CPF="Concentric Peak Force / BM [N/kg]"
+            campos=[(ALT,"Altura máx. (cm)"),(RSI,"RSI-m máx."),(ECC,"ECC Power máx.")]
+            cs=st.columns(3); kp=[]
+            for i,(col,lab) in enumerate(campos):
+                if col in ds.columns:
+                    vals=to_num_col(ds[col]).dropna()
+                    m=round(vals.max(),2) if len(vals)>0 else "-"
+                    cs[i].metric(lab,m); kp.append((lab,m))
+            kpis_pdf.append(("Registros CMJ",len(ds))); kpis_pdf.extend(kp)
+            if "FECHA" in ds.columns:
+                g=_grafico_evolucion(ds,"FECHA",[(ALT,"Altura (cm)","#c8102e","-"),(RSI,"RSI-m (m/s)","#0b1f3d","--")],
+                                     "Evolución Altura (cm) y RSI-m (m/s)")
+                if g: graficos_pdf.append(("CMJ - Evolución Altura y RSI-m",g))
+            fc="FECHA" if "FECHA" in ds.columns else None
+            recientes=(ds.sort_values(fc) if fc else ds).tail(ULTIMOS_N)
+            cols_show=[c for c in [jc,fc,ALT,RSI,ECC,CPF] if c and c in recientes.columns]
+            tablas_pdf.append((f"CMJ - ultimos {len(recientes)} de {len(ds)} registros",recientes[cols_show]))
+
     if "Nórdico" in secs:
         st.markdown('<div class="subsec">💪 Nórdico</div>',unsafe_allow_html=True)
-        ds=mostrar_sec("nordico","Nórdico")
-        if ds is not None:
-            kpis_pdf.append(("Registros Nórdico",len(ds)))
-            tablas_pdf.append(("Nórdico", ds[[c for c in ds.columns if not c.startswith("_")]]))
-    if "VBT" in secs:
-        st.markdown('<div class="subsec">⚡ VBT</div>',unsafe_allow_html=True)
-        ds=mostrar_sec("vbt","VBT")
-        if ds is not None:
-            kpis_pdf.append(("Registros VBT",len(ds)))
-            tablas_pdf.append(("VBT", ds[[c for c in ds.columns if not c.startswith("_")]]))
+        d=cargar_sheet("nordico")
+        jc=jug_col_find(d) if not d.empty else None
+        ds=d[d[jc].astype(str).str.lower()==jsel.lower()] if jc else pd.DataFrame()
+        if ds.empty:
+            st.info("Sin datos de Nórdico.")
+        else:
+            L_N="L Max Force (N)"; R_N="R Max Force (N)"; ASYM_N="Max Imbalance (%)"
+            campos=[(L_N,"Fza máx. izq. (N)"),(R_N,"Fza máx. der. (N)"),(ASYM_N,"Asimetría máx. (%)")]
+            cs=st.columns(3); kp=[]
+            for i,(col,lab) in enumerate(campos):
+                if col in ds.columns:
+                    vals=to_num_col(ds[col]).dropna()
+                    m=round(vals.max(),2) if len(vals)>0 else "-"
+                    cs[i].metric(lab,m); kp.append((lab,m))
+            kpis_pdf.append(("Registros Nórdico",len(ds))); kpis_pdf.extend(kp)
+            if "FECHA" in ds.columns:
+                g=_grafico_evolucion(ds,"FECHA",[(L_N,"Fza Izq (N)","#c8102e","-"),(R_N,"Fza Der (N)","#0b1f3d","-")],
+                                     "Evolución Fuerza Máx. Izq/Der (N)")
+                if g: graficos_pdf.append(("Nórdico - Evolución Fuerza Izq/Der",g))
+            fc="FECHA" if "FECHA" in ds.columns else None
+            recientes=(ds.sort_values(fc) if fc else ds).tail(ULTIMOS_N)
+            cols_show=[c for c in [jc,fc,L_N,R_N,ASYM_N] if c and c in recientes.columns]
+            tablas_pdf.append((f"Nórdico - ultimos {len(recientes)} de {len(ds)} registros",recientes[cols_show]))
+
     if "Lesiones" in secs:
         st.markdown('<div class="subsec">🏥 Historial médico</div>',unsafe_allow_html=True)
         les=cargar_sheet("lesiones")
-        if not les.empty:
-            jc=jug_col_find(les)
-            dl=les[les[jc].astype(str).str.lower()==jsel.lower()]
-            if not dl.empty:
-                st.dataframe(dl,use_container_width=True,hide_index=True)
-                kpis_pdf.append(("Registros médicos",len(dl)))
-                tablas_pdf.append(("Historial médico", dl[[c for c in dl.columns if not c.startswith("_")]]))
-            else: st.info(f"Sin registros médicos para {jsel}.")
+        jc=jug_col_find(les) if not les.empty else None
+        dl=les[les[jc].astype(str).str.lower()==jsel.lower()] if jc else pd.DataFrame()
+        if dl.empty:
+            st.success(f"✅ Sin registros de lesión ni enfermedad para {jsel} en el período disponible.")
+            kpis_pdf.append(("Registros médicos",0))
+        else:
+            st.dataframe(dl,use_container_width=True,hide_index=True)
+            dxt_c=next((c for c in dl.columns if "day_off" in c.lower() or ("dias" in c.lower() and "baja" in c.lower())),None)
+            dias=int(to_num_col(dl[dxt_c]).sum()) if dxt_c and dxt_c in dl.columns else "-"
+            kpis_pdf.append(("Registros médicos",len(dl))); kpis_pdf.append(("Días perdidos",dias))
+            recientes=dl.tail(ULTIMOS_N)
+            tablas_pdf.append((f"Historial médico - ultimos {len(recientes)} de {len(dl)} registros",
+                               recientes[[c for c in recientes.columns if not c.startswith("_")]]))
 
-    pdf_btn("Resumen Individual", subtitulo=f"Jugador: {jsel}", kpis=kpis_pdf, tablas=tablas_pdf,
+    pdf_btn("Resumen Individual", subtitulo=f"Informe individual - {jsel}",
+            ficha_nombre=jsel, ficha_datos=[pos,f"Edad: {edad}" if edad not in ("-","nan") else None,nacio],
+            ficha_foto_url=foto_url if str(foto_url).startswith("http") else None,
+            kpis=kpis_pdf, tablas=tablas_pdf, graficos=graficos_pdf if graficos_pdf else None,
             notas=f"Resumen individual de {jsel}. Secciones incluidas: {', '.join(secs) if secs else 'ninguna seleccionada'}. "
-                  f"Coincide exactamente con lo filtrado en pantalla.",
+                  f"Se muestran KPIs (promedio/maximo) y los ultimos {ULTIMOS_N} registros de cada seccion, no el historial "
+                  f"completo, para que el informe sea legible.",
             key="res")
 
 # ══════════════════════════════════════════════════════════════
@@ -1782,8 +1845,8 @@ def pagina_admin():
     if pendientes:
         st.warning(f"⚠️ {len(pendientes)} solicitud(es) pendiente(s)")
         for username,datos in pendientes.items():
-            with st.expander(f"👤 {datos['nombre']} — {datos['area']} · {datos['rol']}"):
-                st.write(f"**Email:** {datos.get('email','—')} | **Usuario:** `{username}`")
+            with st.expander(f"👤 {datos['nombre']} - {datos['area']} · {datos['rol']}"):
+                st.write(f"**Email:** {datos.get('email','-')} | **Usuario:** `{username}`")
                 c1,c2=st.columns(2)
                 with c1:
                     if st.button("✅ Aprobar",key=f"apr_{username}"):
@@ -1797,11 +1860,11 @@ def pagina_admin():
     fa=st.selectbox("Filtrar por área",["Todas"]+list(AREAS.keys()),key="fa_admin")
     todos=todos_los_usuarios()
     rows=[(k,d) for k,d in todos.items() if fa=="Todas" or d["area"]==fa]
-    filas="".join([f'<tr><td><code style="color:#60a5fa;">{u}</code></td><td><b>{d["nombre"]}</b></td><td><span class="badge-area">{d["area"]}</span></td><td style="color:#94a3b8;">{d["rol"]}</td><td style="color:#64748b;font-size:12px;">{d.get("email","—")}</td><td>{"<span class=\"badge-activo\">Activo</span>" if d["activo"] else "<span class=\"badge-inactivo\">Inactivo</span>"}</td></tr>' for u,d in rows])
+    filas="".join([f'<tr><td><code style="color:#60a5fa;">{u}</code></td><td><b>{d["nombre"]}</b></td><td><span class="badge-area">{d["area"]}</span></td><td style="color:#94a3b8;">{d["rol"]}</td><td style="color:#64748b;font-size:12px;">{d.get("email","-")}</td><td>{"<span class=\"badge-activo\">Activo</span>" if d["activo"] else "<span class=\"badge-inactivo\">Inactivo</span>"}</td></tr>' for u,d in rows])
     st.markdown(f'<div style="background:rgba(8,18,38,.9);border:1px solid rgba(255,255,255,.06);border-radius:16px;overflow:hidden;"><table class="user-table"><thead><tr><th>Usuario</th><th>Nombre</th><th>Área</th><th>Rol</th><th>Email</th><th>Estado</th></tr></thead><tbody>{filas}</tbody></table></div>',unsafe_allow_html=True)
     st.markdown("---")
-    sel=st.selectbox("Gestionar",["— elegí —"]+list(todos.keys()),key="adm_sel")
-    if sel!="— elegí —":
+    sel=st.selectbox("Gestionar",["- elegí -"]+list(todos.keys()),key="adm_sel")
+    if sel!="- elegí -":
         d=todos[sel];st.write(f"**{d['nombre']}** · {d['area']} · `{sel}`")
         c1,c2=st.columns(2)
         with c1:
@@ -1819,7 +1882,7 @@ def pagina_admin():
 # CONTROL NUTRICIONAL
 # ══════════════════════════════════════════════════════════════
 def pagina_nutricion():
-    st.markdown('<div class="sec-title">🥗 Control Nutricional — Control Semanal</div>',unsafe_allow_html=True)
+    st.markdown('<div class="sec-title">🥗 Control Nutricional - Control Semanal</div>',unsafe_allow_html=True)
     df=cargar_sheet("nutricion")
     if df.empty:
         no_data("Control Nutricional")
@@ -1866,10 +1929,10 @@ def pagina_nutricion():
     c2.metric("👤 Jugadores",dff[jcol].nunique())
     if peso_col:
         pvals=to_num_col(dff[peso_col]).dropna()
-        c3.metric("⚖️ Peso prom.",f"{pvals.mean():.1f} kg" if len(pvals)>0 else "—")
+        c3.metric("⚖️ Peso prom.",f"{pvals.mean():.1f} kg" if len(pvals)>0 else "-")
     if pliegue_col:
         plvals=to_num_col(dff[pliegue_col]).dropna()
-        c4.metric("📏 Pliegue prom.",f"{plvals.mean():.1f}" if len(plvals)>0 else "—")
+        c4.metric("📏 Pliegue prom.",f"{plvals.mean():.1f}" if len(plvals)>0 else "-")
 
     # ── Tabla con scroll ─────────────────────────────────────
     st.markdown('<div class="subsec">Registros</div>',unsafe_allow_html=True)
@@ -1880,8 +1943,8 @@ def pagina_nutricion():
     html_table(dff[show_cols].reset_index(drop=True), highlight_cols=num_cols_hl, max_rows=20, height=420,
                key=f"nutri_tabla_{jsel}_{pos_sel}")
 
-    peso_prom=f"{to_num_col(dff[peso_col]).dropna().mean():.1f} kg" if peso_col and to_num_col(dff[peso_col]).dropna().size>0 else "—"
-    pliegue_prom=f"{to_num_col(dff[pliegue_col]).dropna().mean():.1f}" if pliegue_col and to_num_col(dff[pliegue_col]).dropna().size>0 else "—"
+    peso_prom=f"{to_num_col(dff[peso_col]).dropna().mean():.1f} kg" if peso_col and to_num_col(dff[peso_col]).dropna().size>0 else "-"
+    pliegue_prom=f"{to_num_col(dff[pliegue_col]).dropna().mean():.1f}" if pliegue_col and to_num_col(dff[pliegue_col]).dropna().size>0 else "-"
     pdf_btn("Control Nutricional", kpis=[("Registros",len(dff)),("Jugadores",dff[jcol].nunique()),
             ("Peso prom.",peso_prom),("Pliegue prom.",pliegue_prom)],
             tablas=[("Registro nutricional",dff[show_cols].reset_index(drop=True))],
