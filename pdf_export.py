@@ -43,57 +43,6 @@ def _clean(txt):
     return "".join(out).strip()
 
 
-def _descargar_imagen(url, timeout=4):
-    """Descarga la foto del jugador para embeberla en el PDF (el avatar se veia
-    en pantalla pero nunca se exportaba). Si falla por lo que sea (sin conexion,
-    URL invalida, imagen caida) devuelve None sin romper la generacion del PDF."""
-    if not url or not str(url).strip().lower().startswith("http"):
-        return None
-    try:
-        import requests
-        r = requests.get(str(url).strip(), timeout=timeout)
-        r.raise_for_status()
-        return r.content
-    except Exception:
-        return None
-
-
-def _fmt_valor(v):
-    """Formatea cualquier valor de celda para el PDF. Antes un NaN llegaba a
-    tabla() como float y se imprimia literalmente 'nan' (o 'None' si venia de
-    un str()). Aca todo eso se normaliza a '—', consistente en toda la app."""
-    if v is None:
-        return "-"
-    if isinstance(v, float):
-        if pd.isna(v):
-            return "-"
-        return f"{int(v):,}" if v == int(v) else f"{v:,.1f}"
-    if isinstance(v, pd.Timestamp):
-        return "-" if pd.isna(v) else v.strftime("%d/%m/%Y")
-    try:
-        if pd.isna(v):
-            return "-"
-    except (TypeError, ValueError):
-        pass
-    s = str(v).strip()
-    if s.lower() in ("nan", "none", "<na>", "nat", ""):
-        return "-"
-    return s
-
-
-# Paleta para color-codear columnas categoricas (TIPO, LESION, POS, etc.)
-# en tablas simples, para que no se vean a planilla de Excel monocroma.
-PALETA_CAT = [(200, 16, 46), (37, 99, 235), (22, 163, 74), (217, 119, 6),
-              (124, 58, 237), (8, 145, 178), (219, 39, 119), (101, 163, 13)]
-
-
-def _color_categoria(v):
-    s = str(v).strip().upper()
-    if not s or s in ("NAN", "NONE", "-"):
-        return NEGRO
-    return PALETA_CAT[sum(ord(c) for c in s) % len(PALETA_CAT)]
-
-
 class ReportePDF(FPDF):
     """PDF con header/footer institucional del Club A. Unión."""
 
@@ -137,40 +86,6 @@ class ReportePDF(FPDF):
         self.cell(0, 5, f"Pag. {self.page_no()}/{{nb}}", 0, 0, "R")
 
     # ── bloques reutilizables ────────────────────────────────────────
-    def ficha_jugador(self, nombre, datos=None, foto_bytes=None):
-        """Encabezado de ficha individual: avatar + nombre + chips de datos
-        (posicion, edad, pais...). Antes el avatar solo se veia en pantalla."""
-        datos = [d for d in (datos or []) if d and str(d).strip().lower() not in ("nan", "none", "—", "-")]
-        y0 = self.get_y()
-        tam = 24
-        dibujo_ok = False
-        if foto_bytes:
-            try:
-                import io
-                self.image(io.BytesIO(foto_bytes), x=12, y=y0, w=tam, h=tam)
-                dibujo_ok = True
-            except Exception:
-                dibujo_ok = False
-        if not dibujo_ok:
-            self.set_fill_color(235, 238, 244); self.set_draw_color(210, 215, 225)
-            self.rect(12, y0, tam, tam, "DF")
-            self.set_xy(12, y0 + tam / 2 - 4)
-            self.set_font("Helvetica", "B", 13); self.set_text_color(*GRIS)
-            inicial = _clean(nombre)[:1].upper() if nombre else "?"
-            self.cell(tam, 8, inicial, align="C")
-        tx = 12 + tam + 5
-        self.set_xy(tx, y0 + 1)
-        self.set_font("Helvetica", "B", 13); self.set_text_color(*NEGRO)
-        self.cell(self.ancho_util - tam - 5, 7, _clean(nombre), ln=1)
-        self.set_x(tx)
-        self.set_font("Helvetica", "", 7.5); self.set_text_color(*GRIS)
-        linea = "   ·   ".join(_clean(str(d)) for d in datos)
-        self.cell(self.ancho_util - tam - 5, 5, linea[:120], ln=1)
-        self.set_y(max(self.get_y(), y0 + tam) + 3)
-        self.set_draw_color(225, 230, 238)
-        self.line(12, self.get_y(), 12 + self.ancho_util, self.get_y())
-        self.ln(3)
-
     def seccion(self, num, texto):
         self.ln(1)
         self.set_font("Helvetica", "B", 8)
@@ -215,10 +130,10 @@ class ReportePDF(FPDF):
                 self.set_x(x + 2)
                 self.set_font("Helvetica", "B", 11)
                 self.set_text_color(*col)
-                self.cell(ancho - 4, 7, _clean(_fmt_valor(val))[:14], ln=2, align="C")
+                self.cell(ancho - 4, 7, _clean(str(val))[:14], ln=2, align="C")
             self.set_y(y0 + 18)
 
-    def tabla_color(self, df, estilos=None, max_filas=250):
+    def tabla_color(self, df, estilos=None, max_filas=40):
         """
         Tabla con color por celda (replica el semaforo del Power BI).
         estilos: DataFrame de la misma forma con "bg_hex|fg_hex" o "" por celda.
@@ -248,7 +163,9 @@ class ReportePDF(FPDF):
             if self.get_y() > (185 if self.orientacion == "L" else 272):
                 self.add_page(); _hdr(); self.set_font("Helvetica", "", 5.4)
             for c, w in zip(cols, anchos):
-                v = _fmt_valor(r[c])
+                v = r[c]
+                if isinstance(v, float):
+                    v = "-" if pd.isna(v) else (f"{v:,.0f}" if abs(v) >= 100 else f"{v:,.1f}")
                 sty = ""
                 if est is not None and c in est.columns:
                     raw = est.iloc[idx][c]
@@ -271,34 +188,49 @@ class ReportePDF(FPDF):
             self.set_text_color(*GRIS)
             self.cell(0, 4, _clean(f"Mostrando {max_filas} de {len(df)} filas."), ln=1)
 
-    ANCHO_MIN_COL = 15.5  # mm — por debajo de esto el texto se pisa y queda ilegible
-
-    def tabla(self, df, max_filas=400, max_cols=None, color_cols=None):
-        """Tabla compacta simple, con color por categoria opcional.
-        max_cols YA NO es un numero fijo que el caller puede pasar sin limite:
-        se acota SIEMPRE al maximo de columnas que entran legibles en el ancho
-        real de la hoja (ANCHO_MIN_COL por columna). Antes un caller pidiendo
-        max_cols=20 terminaba aplastando 20 columnas en 186mm -> texto pisado
-        e ilegible, aunque el df tuviera menos filas de sobra."""
+    def tabla(self, df, max_filas=28, max_cols=9, highlight_cols=None):
+        """
+        Tabla compacta. highlight_cols: lista de columnas numericas a pintar
+        con gradiente verde(alto) -> rojo(bajo), igual criterio que html_table
+        en pantalla (app.py). Sin highlight_cols se comporta como antes.
+        """
         if df is None or df.empty:
             self.parrafo("Sin datos para el periodo seleccionado.")
             return
-        max_cols_fit = max(3, int(self.ancho_util // self.ANCHO_MIN_COL))
-        max_cols = min(max_cols or max_cols_fit, max_cols_fit, len(df.columns))
-        color_cols = color_cols or []
-
         d = df.head(max_filas).copy()
         cols = list(d.columns)[:max_cols]
         d = d[cols]
         ancho = self.ancho_util / len(cols)
-        limite_chars = max(6, int(ancho / 1.7))
+        highlight_cols = [c for c in (highlight_cols or []) if c in cols]
+
+        rangos = {}
+        for c in highlight_cols:
+            vals = pd.to_numeric(d[c], errors="coerce").dropna()
+            if len(vals) > 1:
+                rangos[c] = (vals.min(), vals.max())
+
+        def _color_celda(c, v):
+            if c not in rangos:
+                return None
+            try:
+                v = float(v)
+                mn, mx = rangos[c]
+                if mx == mn:
+                    return (26, 90, 180)
+                ratio = (v - mn) / (mx - mn)
+                r = int(220 * (1 - ratio) + 20 * ratio)
+                g = int(80 * (1 - ratio) + 180 * ratio)
+                b = int(60 * (1 - ratio) + 60 * ratio)
+                return (r, g, b)
+            except Exception:
+                return None
 
         def _hdr():
             self.set_font("Helvetica", "B", 6.8)
             self.set_fill_color(*ROJO)
             self.set_text_color(*BLANCO)
             for c in cols:
-                self.cell(ancho, 6, _clean(str(c))[:limite_chars], 1, 0, "C", True)
+                self.cell(ancho, 6, _clean(str(c))[:16], 1, 0, "C", True)
             self.ln()
 
         _hdr()
@@ -309,16 +241,26 @@ class ReportePDF(FPDF):
             if self.get_y() > (180 if self.orientacion == "L" else 262):
                 self.add_page(); _hdr()
                 self.set_font("Helvetica", "", 6.5); self.set_text_color(*NEGRO)
-            self.set_fill_color(*(245, 247, 250) if alt else (255, 255, 255))
             for c in cols:
-                v = _fmt_valor(r[c])
-                if c in color_cols:
+                v = r[c]
+                rgb = _color_celda(c, v)
+                if isinstance(v, float):
+                    v = f"{v:,.1f}"
+                elif isinstance(v, pd.Timestamp):
+                    v = v.strftime("%d/%m/%Y")
+                if rgb:
+                    self.set_fill_color(*rgb)
+                    lum = 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]
+                    if lum < 140:
+                        self.set_text_color(255, 255, 255)
+                    else:
+                        self.set_text_color(*NEGRO)
                     self.set_font("Helvetica", "B", 6.5)
-                    self.set_text_color(*_color_categoria(v))
                 else:
-                    self.set_font("Helvetica", "", 6.5)
+                    self.set_fill_color(*(245, 247, 250) if alt else (255, 255, 255))
                     self.set_text_color(*NEGRO)
-                self.cell(ancho, 5, _clean(v)[:limite_chars], 1, 0, "C", True)
+                    self.set_font("Helvetica", "", 6.5)
+                self.cell(ancho, 5, _clean(str(v))[:16], 1, 0, "C", True)
             self.ln()
             alt = not alt
         if len(df) > max_filas:
@@ -326,62 +268,6 @@ class ReportePDF(FPDF):
             self.set_font("Helvetica", "I", 6.5)
             self.set_text_color(*GRIS)
             self.cell(0, 4, _clean(f"Mostrando {max_filas} de {len(df)} filas."), ln=1)
-        if len(df.columns) > max_cols:
-            self.set_font("Helvetica", "I", 6.5)
-            self.set_text_color(*GRIS)
-            self.cell(0, 4, _clean(f"Mostrando {max_cols} de {len(df.columns)} columnas "
-                                   "(el resto no entra legible en la hoja; usa orientacion landscape "
-                                   "o filtra columnas si necesitas verlas todas)."), ln=1)
-
-    def tarjetas(self, df, campos, titulo_col=None, subtitulo_col=None, por_fila=3, alto_card=34):
-        """Formato tarjetas: una card por registro (como las de pantalla), en vez
-        de una fila de tabla. campos: lista de (columna, etiqueta) a mostrar."""
-        if df is None or df.empty:
-            self.parrafo("Sin datos para el periodo seleccionado.")
-            return
-        gap = 4
-        ancho_card = (self.ancho_util - (por_fila - 1) * gap) / por_fila
-        limite = 190 if self.orientacion == "L" else 275
-        y = self.get_y()
-        n = len(df)
-        for i, (_, r) in enumerate(df.iterrows()):
-            col_i = i % por_fila
-            if col_i == 0 and y + alto_card > limite:
-                self.add_page()
-                y = self.get_y()
-            x = 12 + col_i * (ancho_card + gap)
-            self.set_fill_color(246, 248, 251)
-            self.set_draw_color(225, 230, 238)
-            self.rect(x, y, ancho_card, alto_card, "DF")
-            self.set_fill_color(*ROJO)
-            self.rect(x, y, 1.6, alto_card, "F")
-            tx = x + 4.5
-            self.set_xy(tx, y + 2.3)
-            self.set_font("Helvetica", "B", 8.5)
-            self.set_text_color(*NEGRO)
-            titulo_txt = _fmt_valor(r[titulo_col]) if titulo_col and titulo_col in r.index else ""
-            self.cell(ancho_card - 6, 4.5, _clean(titulo_txt)[:26], ln=2)
-            self.set_x(tx)
-            if subtitulo_col and subtitulo_col in r.index:
-                self.set_font("Helvetica", "", 6.3)
-                self.set_text_color(*ROJO)
-                self.cell(ancho_card - 6, 3.8, _clean(_fmt_valor(r[subtitulo_col]))[:32], ln=2)
-                self.set_x(tx)
-            yy = self.get_y() + 1
-            self.set_font("Helvetica", "", 6.1)
-            for c, label in campos:
-                if c not in r.index: continue
-                self.set_xy(tx, yy)
-                self.set_text_color(*GRIS)
-                self.cell(17, 3.6, _clean(str(label)).upper()[:10] + ":", 0, 0)
-                self.set_text_color(*NEGRO)
-                self.set_font("Helvetica", "B", 6.1)
-                self.cell(ancho_card - 6 - 17, 3.6, _clean(_fmt_valor(r[c]))[:24], 0, 2)
-                self.set_font("Helvetica", "", 6.1)
-                yy += 3.7
-            if col_i == por_fila - 1 or i == n - 1:
-                y += alto_card + gap
-        self.set_y(y)
 
 
 def _hex(h, default=(255, 255, 255)):
@@ -399,60 +285,34 @@ def _hex(h, default=(255, 255, 255)):
 
 
 def generar_pdf(titulo, subtitulo="", kpis=None, tablas=None, notas=None, escudo=None,
-                orientacion="P", matriz=None, estilos=None, matriz_titulo="Matriz",
-                color_cols=None, tarjetas_df=None, tarjetas_campos=None, tarjetas_titulo_col=None,
-                tarjetas_subtitulo_col=None, tarjetas_seccion="Fichas", tarjetas_por_fila=3,
-                graficos=None, ficha_nombre=None, ficha_datos=None, ficha_foto_url=None):
+                orientacion="P", matriz=None, estilos=None, matriz_titulo="Matriz"):
     """
     kpis        : lista de (label, valor) o (label, valor, color_rgb)
     tablas      : lista de (titulo_seccion, DataFrame)   -> tabla simple
-    color_cols  : columnas categoricas a color-codear en las tablas simples (TIPO, LESION, POS, etc.)
     matriz      : DataFrame ancho                        -> tabla con color por celda
     estilos     : DataFrame paralelo a `matriz` con "bg|fg" por celda
     orientacion : "P" vertical | "L" horizontal (para matrices anchas)
-    tarjetas_df / tarjetas_campos / tarjetas_titulo_col / tarjetas_subtitulo_col :
-                  si se pasa tarjetas_df, se agrega una seccion en formato tarjetas
-                  (una card por fila, como en pantalla) en vez de tabla plana.
-    graficos    : lista de (titulo, bytes_png) -> se embeben como imagen, para que
-                  el reporte no sea solo texto/tablas.
-    ficha_nombre / ficha_datos / ficha_foto_url : si se pasa ficha_nombre, se agrega
-                  un encabezado de ficha individual con avatar (descargado de la URL)
-                  + nombre + datos (posicion, edad, pais...). El avatar antes solo
-                  se veia en pantalla y nunca se exportaba.
     """
     pdf = ReportePDF(titulo=titulo, subtitulo=subtitulo, escudo=escudo, orientacion=orientacion)
     pdf.alias_nb_pages()
     pdf.add_page()
 
-    if ficha_nombre:
-        foto_bytes = _descargar_imagen(ficha_foto_url)
-        pdf.ficha_jugador(ficha_nombre, ficha_datos, foto_bytes)
-
-    tablas = [(t, d) for t, d in (tablas or []) if d is not None and not d.empty]
-    graficos = [(t, b) for t, b in (graficos or []) if b]
-    hay_tarjetas = tarjetas_df is not None and not tarjetas_df.empty
-    hay = bool(kpis or tablas or notas or graficos or hay_tarjetas or (matriz is not None and not matriz.empty))
+    tablas_norm = []
+    for item in (tablas or []):
+        tit, d = item[0], item[1]
+        hl = item[2] if len(item) > 2 else None
+        if d is not None and not d.empty:
+            tablas_norm.append((tit, d, hl))
+    tablas = tablas_norm
+    hay = bool(kpis or tablas or notas or (matriz is not None and not matriz.empty))
 
     n = 1
     if kpis:
         pdf.seccion(f"{n:02d}", "Resumen de indicadores"); pdf.kpis(kpis); n += 1
     if matriz is not None and not matriz.empty:
         pdf.seccion(f"{n:02d}", matriz_titulo); pdf.tabla_color(matriz, estilos); pdf.ln(2); n += 1
-    if hay_tarjetas:
-        pdf.seccion(f"{n:02d}", tarjetas_seccion)
-        pdf.tarjetas(tarjetas_df, tarjetas_campos or [], titulo_col=tarjetas_titulo_col,
-                     subtitulo_col=tarjetas_subtitulo_col, por_fila=tarjetas_por_fila)
-        pdf.ln(2); n += 1
-    for tit, df in tablas:
-        pdf.seccion(f"{n:02d}", tit); pdf.tabla(df, color_cols=color_cols); pdf.ln(2); n += 1
-    for tit, png_bytes in graficos:
-        import io
-        pdf.seccion(f"{n:02d}", tit)
-        try:
-            pdf.image(io.BytesIO(png_bytes), x=12, w=pdf.ancho_util)
-        except Exception:
-            pdf.parrafo("No se pudo incrustar el grafico.")
-        pdf.ln(2); n += 1
+    for tit, df, hl in tablas:
+        pdf.seccion(f"{n:02d}", tit); pdf.tabla(df, highlight_cols=hl); pdf.ln(2); n += 1
     if notas:
         pdf.seccion(f"{n:02d}", "Notas"); pdf.parrafo(notas)
     if not hay:
@@ -505,14 +365,11 @@ div[data-testid="stDownloadButton"] button *,
 
 
 # ────────────────────────────────────────────────────────────────────────
-#  Botón para Streamlit  (reemplaza al pdf_btn() viejo)
+#  Botón para Streamlit  
 # ────────────────────────────────────────────────────────────────────────
 def pdf_btn(titulo="Informe", subtitulo="", kpis=None, tablas=None, notas=None,
             escudo=None, key=None, orientacion="P", matriz=None, estilos=None,
-            matriz_titulo="Matriz", label="Exportar PDF", color_cols=None,
-            tarjetas_df=None, tarjetas_campos=None, tarjetas_titulo_col=None,
-            tarjetas_subtitulo_col=None, tarjetas_seccion="Fichas", tarjetas_por_fila=3,
-            graficos=None, ficha_nombre=None, ficha_datos=None, ficha_foto_url=None, **kwargs):
+            matriz_titulo="Matriz", label="Exportar PDF", **kwargs):
     """Boton real de descarga PDF (st.download_button es un widget nativo:
     a diferencia del <button onclick> anterior, Streamlit no lo sanitiza).
     **kwargs absorbe cualquier parametro futuro para no romper por firma."""
@@ -521,12 +378,7 @@ def pdf_btn(titulo="Informe", subtitulo="", kpis=None, tablas=None, notas=None,
     st.markdown(_CSS_BTN, unsafe_allow_html=True)
     try:
         data = generar_pdf(titulo, subtitulo, kpis, tablas, notas, escudo,
-                           orientacion, matriz, estilos, matriz_titulo,
-                           color_cols=color_cols, tarjetas_df=tarjetas_df, tarjetas_campos=tarjetas_campos,
-                           tarjetas_titulo_col=tarjetas_titulo_col, tarjetas_subtitulo_col=tarjetas_subtitulo_col,
-                           tarjetas_seccion=tarjetas_seccion, tarjetas_por_fila=tarjetas_por_fila,
-                           graficos=graficos, ficha_nombre=ficha_nombre, ficha_datos=ficha_datos,
-                           ficha_foto_url=ficha_foto_url)
+                           orientacion, matriz, estilos, matriz_titulo)
     except Exception as e:
         st.warning(f"No se pudo generar el PDF: {e}")
         return
