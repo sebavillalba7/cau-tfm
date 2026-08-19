@@ -365,7 +365,7 @@ div[data-testid="stDownloadButton"] button *,
 
 
 # ────────────────────────────────────────────────────────────────────────
-#  Botón para Streamlit  
+#  Botón para Streamlit  (reemplaza al pdf_btn() viejo)
 # ────────────────────────────────────────────────────────────────────────
 def pdf_btn(titulo="Informe", subtitulo="", kpis=None, tablas=None, notas=None,
             escudo=None, key=None, orientacion="P", matriz=None, estilos=None,
