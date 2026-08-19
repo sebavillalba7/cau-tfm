@@ -16,7 +16,7 @@
 #  · EWMA (Williams et al., 2017): media móvil exponencial. Penaliza menos
 #    el pasado lejano que el rolling simple del ACWR clásico.
 #      EWMA_hoy = carga_hoy · λ + EWMA_ayer · (1 − λ),  λ = 2/(N+1)
-#      Ratio = EWMA_agudo(7d) / EWMA_crónico(21d)
+#      Ratio = EWMA_agudo(7d) / EWMA_crónico(28d)
 #
 #  RENDIMIENTO: todo se agrega ANTES de mandar al browser y las tablas se
 #  paginan. El bug de 249.8 MB venía de renderizar la hoja GPS completa
@@ -51,7 +51,9 @@ EWMA_METRICAS = ["td", "m19", "m24", "vi85", "acel", "des"]
 
 
 # Sesiones que NO cuentan para carga del plantel principal ni para el EWMA.
-SES_EXCLUIR_DEFAULT = ["RTT", "ENT RVA", "RESERVA", "PAR RVA", "ENT DIF", "HIIT"]
+# COMP_REC (compensatorio/recuperacion) sumado: es lo que excluye el filtro
+# "SES no es ..." del Power BI de referencia (ahi solo quedan MIXTO y TACTICO).
+SES_EXCLUIR_DEFAULT = ["RTT", "ENT RVA", "RESERVA", "PAR RVA", "ENT DIF", "HIIT", "COMP_REC"]
 
 
 def _parse_fecha(serie):
@@ -120,11 +122,6 @@ def preparar(df):
     d["_fecha"] = _parse_fecha(df[m["fecha"]])
     for campo in ["pos", "micro", "semana", "ses", "temp", "ref", "ent"]:
         d["_" + campo] = df[m[campo]].astype(str).str.strip() if m.get(campo) else ""
-    # Año real de la sesion, tomado de FECHA (GPS_LONG no tiene columna TEMP:
-    # "TEMP" es una columna de la hoja de Historial/roster, no de GPS_LONG, por lo
-    # que _temp queda vacío en todas las filas y el selector "Año" no filtraba nada
-    # -> por eso aparecian en EWMA jugadores que ya no estan en el club).
-    d["_anio"] = d["_fecha"].dt.year
     for k, _, _ in METRICAS:
         col = m.get(k)
         if col:
@@ -229,9 +226,8 @@ def matriz_microciclo(d, ref_ind, ref_pos):
 
 # ─────────────────────────────────────────────────────────────────────────
 #  EWMA  ·  ratio agudo:crónico exponencial (Williams et al., 2017)
-#  Ventana 7:21 (7 dias agudo / 21 dias cronico).
 # ─────────────────────────────────────────────────────────────────────────
-def ewma_serie(d, metrica, agudo=7, cronico=21):
+def ewma_serie(d, metrica, agudo=7, cronico=28):
     """
     Serie diaria por jugador con EWMA agudo, crónico y su ratio.
     Reindexa a días calendario (los días sin sesión cuentan como carga 0),
@@ -259,7 +255,7 @@ def ewma_serie(d, metrica, agudo=7, cronico=21):
     return pd.concat(salida, ignore_index=True) if salida else pd.DataFrame()
 
 
-def ewma_resumen(d, metricas=None, agudo=7, cronico=21):
+def ewma_resumen(d, metricas=None, agudo=7, cronico=28):
     """Último ratio EWMA por jugador y por métrica → DataFrame (jugadores × métricas)."""
     metricas = metricas or EWMA_METRICAS
     out = {}
@@ -440,7 +436,7 @@ def pagina_demandas_fisicas(cargar_sheet, pdf_btn=None):
         if not ew.empty:
             cards = [_tarjeta(f"EWMA {labs[k]}", f"{ew[k].mean():.2f}", color_ewma(ew[k].mean()))
                      for k in EWMA_METRICAS if k in ew.columns and pd.notna(ew[k].mean())]
-            st.markdown('<div class="subsec">Ratio agudo:crónico exponencial (EWMA 7:21)</div>',
+            st.markdown('<div class="subsec">Ratio agudo:crónico exponencial (EWMA 7:28)</div>',
                         unsafe_allow_html=True)
             st.markdown(_fila_tarjetas(cards), unsafe_allow_html=True)
 
@@ -529,7 +525,7 @@ def pagina_demandas_fisicas(cargar_sheet, pdf_btn=None):
                    f"del jugador con mas de {min_ref} minutos. BASE POS: el jugador no tiene partidos "
                    f"que califiquen y se compara contra el promedio de su posicion. "
                    f"Sesiones excluidas del calculo: {', '.join(excl) if excl else 'ninguna'}. "
-                   f"EWMA = ratio agudo(7d):cronico(21d) exponencial (Williams et al., 2017).")
+                   f"EWMA = ratio agudo(7d):cronico(28d) exponencial (Williams et al., 2017).")
             _kw=dict(subtitulo=f"Microciclo {msel} - Temporada {tsel} - Club A. Union",
                      kpis=kp, matriz=exp, estilos=est,
                      matriz_titulo="Microciclo vs % de max de partido individual",
@@ -552,19 +548,32 @@ def pagina_demandas_fisicas(cargar_sheet, pdf_btn=None):
     #  TAB 2 — EWMA GRUPAL POR VARIABLE
     # ═════════════════════════════════════════════════════════════════
     with t2:
-        c1, c2 = st.columns([1, 2])
+        c1, c2, c3, c4 = st.columns(4)
         with c1:
-            anios2 = sorted([int(x) for x in d["_anio"].dropna().unique()], reverse=True)
-            opts2 = ["Todas"] + [str(a) for a in anios2]
-            t2sel = st.selectbox("Año", opts2, index=1 if len(opts2) > 1 else 0, key="ew_temp",
-                                 help="Filtra por año de sesión (FECHA). Por defecto muestra el año más reciente "
-                                      "para no mezclar jugadores que ya no están en el plantel.")
+            temps2 = ["Todas"] + sorted([x for x in d["_temp"].unique() if x and x != "nan"], reverse=True)
+            t2sel = st.selectbox("Año", temps2, index=1 if len(temps2) > 1 else 0, key="ew_temp")
         with c2:
             pos2 = sorted([x for x in d["_pos"].unique() if x and x != "nan"])
             p2sel = st.multiselect("Posición", pos2, default=[], key="ew_pos")
+        with c3:
+            mics2 = ["Todos"] + sorted([x for x in d["_micro"].unique() if x and x != "nan"],
+                                       key=lambda z: (len(z), z), reverse=True)
+            m2sel = st.selectbox("Microciclo", mics2, key="ew_micro")
+        with c4:
+            val2 = d["_fecha"].dropna()
+            rango2 = None
+            if not val2.empty:
+                f2min, f2max = val2.min().date(), val2.max().date()
+                rango2 = st.date_input("Rango de fechas", value=(f2min, f2max),
+                                       min_value=f2min, max_value=f2max, key="ew_fecha")
+
         dg = d.copy()
-        if t2sel != "Todas": dg = dg[dg["_anio"] == int(t2sel)]
+        if t2sel != "Todas": dg = dg[dg["_temp"] == t2sel]
         if p2sel: dg = dg[dg["_pos"].isin(p2sel)]
+        if m2sel != "Todos": dg = dg[dg["_micro"] == m2sel]
+        if isinstance(rango2, (list, tuple)) and len(rango2) == 2:
+            ini2, fin2 = pd.Timestamp(rango2[0]), pd.Timestamp(rango2[1]) + pd.Timedelta(days=1)
+            dg = dg[dg["_fecha"].isna() | ((dg["_fecha"] >= ini2) & (dg["_fecha"] < fin2))]
 
         ew = ewma_resumen(dg)
         if ew.empty:
@@ -608,23 +617,34 @@ def pagina_demandas_fisicas(cargar_sheet, pdf_btn=None):
             figm.update_xaxes(color="#fff"); figm.update_yaxes(color="#fff")
             st.plotly_chart(figm, use_container_width=True)
 
+        if pdf_btn:
+            kp_ew = [(f"EWMA {labs[k]}", f"{ew[k].mean():.2f}") for k in EWMA_METRICAS if k in ew.columns]
+            pdf_btn("Demandas Fisicas - EWMA Grupal", kpis=kp_ew,
+                    tablas=[(f"Ranking EWMA {labs[vsel]}", rank)],
+                    orientacion="L", key="ew_grupal",
+                    notas=f"Ratio EWMA agudo(7d):cronico(28d). Año={t2sel}, Microciclo={m2sel}.")
+
     # ═════════════════════════════════════════════════════════════════
     #  TAB 3 — EWMA INDIVIDUAL
     # ═════════════════════════════════════════════════════════════════
     with t3:
-        c1i, c2i = st.columns([1, 2])
-        with c1i:
-            anios3 = sorted([int(x) for x in d["_anio"].dropna().unique()], reverse=True)
-            opts3 = ["Todas"] + [str(a) for a in anios3]
-            t3sel = st.selectbox("Año", opts3, index=1 if len(opts3) > 1 else 0, key="ewi_temp",
-                                 help="Filtra por año de sesión (FECHA). Por defecto muestra el año más reciente "
-                                      "para no listar jugadores que ya no están en el plantel.")
-        d3 = d if t3sel == "Todas" else d[d["_anio"] == int(t3sel)]
-        if d3.empty:
-            st.info("Sin sesiones para el año seleccionado."); return
-        with c2i:
-            jind = st.selectbox("Jugador", sorted(d3["_jug"].unique().tolist()), key="ewi_jug")
-        di = d3[d3["_jug"] == jind]
+        jsel3, msel3 = st.columns(2)
+        with jsel3:
+            jind = st.selectbox("Jugador", sorted(d["_jug"].unique().tolist()), key="ewi_jug")
+        with msel3:
+            mics3 = ["Todos"] + sorted([x for x in d["_micro"].unique() if x and x != "nan"],
+                                       key=lambda z: (len(z), z), reverse=True)
+            m3sel = st.selectbox("Microciclo", mics3, key="ewi_micro")
+        di = d[d["_jug"] == jind]
+        if m3sel != "Todos": di = di[di["_micro"] == m3sel]
+        val3 = di["_fecha"].dropna()
+        if not val3.empty:
+            f3min, f3max = val3.min().date(), val3.max().date()
+            rango3 = st.date_input("Rango de fechas", value=(f3min, f3max),
+                                   min_value=f3min, max_value=f3max, key="ewi_fecha")
+            if isinstance(rango3, (list, tuple)) and len(rango3) == 2:
+                ini3, fin3 = pd.Timestamp(rango3[0]), pd.Timestamp(rango3[1]) + pd.Timedelta(days=1)
+                di = di[di["_fecha"].isna() | ((di["_fecha"] >= ini3) & (di["_fecha"] < fin3))]
         labs = dict((a, b) for a, b, _ in METRICAS)
 
         ewi = ewma_resumen(di)
@@ -644,7 +664,7 @@ def pagina_demandas_fisicas(cargar_sheet, pdf_btn=None):
                              marker_color="rgba(96,165,250,.35)", yaxis="y2"))
         fig.add_trace(go.Scatter(x=s["_fecha"], y=s["agudo"], name="EWMA agudo (7d)",
                                  line=dict(color="#c8102e", width=2), yaxis="y2"))
-        fig.add_trace(go.Scatter(x=s["_fecha"], y=s["cronico"], name="EWMA crónico (21d)",
+        fig.add_trace(go.Scatter(x=s["_fecha"], y=s["cronico"], name="EWMA crónico (28d)",
                                  line=dict(color="#facc15", width=2, dash="dash"), yaxis="y2"))
         fig.add_trace(go.Scatter(x=s["_fecha"], y=s["ratio"], name="Ratio A:C",
                                  line=dict(color="#4ade80", width=2.5)))
@@ -669,3 +689,11 @@ def pagina_demandas_fisicas(cargar_sheet, pdf_btn=None):
             'pesa igual). Zona verde 0.8–1.3 = progresión de carga controlada. Por encima de 1.3, la carga '
             'aguda crece más rápido que la base crónica. Referencia: Williams et al. (2017), BJSM.</div>',
             unsafe_allow_html=True)
+
+        if pdf_btn:
+            kp_ewi = [(f"EWMA {labs[k]}", f"{ewi[k].iloc[0]:.2f}") for k in EWMA_METRICAS
+                      if k in ewi.columns and pd.notna(ewi[k].iloc[0])] if not ewi.empty else []
+            pdf_btn(f"Demandas Fisicas - EWMA {jind}", kpis=kp_ewi,
+                    tablas=[(f"Evolucion diaria - {labs[vi]}", s)],
+                    orientacion="L", key="ew_individual",
+                    notas=f"Jugador={jind}, Microciclo={m3sel}, Variable={labs[vi]}.")
