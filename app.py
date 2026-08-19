@@ -1566,44 +1566,223 @@ def pagina_resumen():
                 f'<span class="chip chip-green">Edad: {edad}</span></div></div></div>',
                 unsafe_allow_html=True)
 
-    # ── Helper: KPIs en pantalla + devuelve datos para el PDF ──────
-    def _sec_data(key,label,cols_evolucion=None):
-        d=cargar_sheet(key)
-        if d is None or d.empty: return None
-        jc=jug_col_find(d)
-        if not jc: return None
-        ds=d[d[jc].astype(str).str.lower()==jsel.lower()]
-        if ds.empty: return None
-        num_cols=[c for c in ds.columns if to_num_col(ds[c]).notna().sum()>len(ds)*0.2
-                  and c not in ["AÑO","_fecha"] and not c.startswith("_")]
-        return {"df":ds, "num_cols":num_cols}
+    # ── Helper: tarjeta con valor MAX grande y PROMEDIO chico abajo ──
+    def _tarjeta_maxprom(label,val_max,val_prom,color="#fff"):
+        vmax_s="—" if val_max is None or pd.isna(val_max) else f"{val_max:,.1f}"
+        vprom_s="—" if val_prom is None or pd.isna(val_prom) else f"{val_prom:,.1f}"
+        return (f'<div style="flex:1;min-width:120px;background:rgba(8,18,38,.9);'
+                f'border:1px solid rgba(26,90,180,.3);border-radius:12px;padding:12px 10px;text-align:center;">'
+                f'<div style="font-size:9px;letter-spacing:1px;color:#94a3b8;text-transform:uppercase;'
+                f'font-weight:700;margin-bottom:4px;">{label}</div>'
+                f'<div style="font-size:22px;font-weight:900;color:{color};line-height:1.1;">{vmax_s}</div>'
+                f'<div style="font-size:11px;color:#64748b;margin-top:2px;">prom. {vprom_s}</div></div>')
 
-    def mostrar_sec(key,label,icon):
-        info=_sec_data(key,label)
-        st.markdown(f'<div class="subsec">{icon} {label}</div>',unsafe_allow_html=True)
-        if not info:
-            st.info(f"Sin datos de {label} para {jsel}."); return None
-        ds,num_cols=info["df"],info["num_cols"]
-        cs=st.columns(min(4,max(1,len(num_cols))))
-        for i,col in enumerate(num_cols[:4]):
-            vals=to_num_col(ds[col]).dropna()
-            cs[i].metric(col[:20],round(vals.mean(),2) if len(vals)>0 else "—")
-        return ds[[c for c in ds.columns if not c.startswith("_")]]
+    def _tarjeta_color(label,valor,color):
+        v_s="—" if valor is None or pd.isna(valor) else f"{valor:.2f}"
+        return (f'<div style="flex:1;min-width:110px;background:{color}18;'
+                f'border:1px solid {color}55;border-radius:12px;padding:12px 10px;text-align:center;">'
+                f'<div style="font-size:9px;letter-spacing:1px;color:#94a3b8;text-transform:uppercase;'
+                f'font-weight:700;margin-bottom:4px;">{label}</div>'
+                f'<div style="font-size:22px;font-weight:900;color:{color};line-height:1.1;">{v_s}</div></div>')
+
+    def _fila(items):
+        return ('<div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 14px;">'
+                + "".join(items) + "</div>")
+
+    def _sort_micro(vals):
+        def _k(z):
+            try: return (0, float(str(z).replace(",",".")))
+            except Exception: return (1, len(str(z)), str(z))
+        return sorted(vals, key=_k)
 
     tablas_pdf=[]; kpis_pdf=[("Jugador",jsel),("Posición",pos)]
 
+    # ═══════════════════════════════════════════════════════════════
+    #  GPS
+    # ═══════════════════════════════════════════════════════════════
     if "GPS" in secs:
-        ds=mostrar_sec("gps","GPS","📡")
-        if ds is not None: tablas_pdf.append(("GPS - últimos registros", ds.tail(15)))
+        st.markdown('<div class="subsec">📡 GPS</div>',unsafe_allow_html=True)
+        gps_full=cargar_sheet("gps")
+        if gps_full is None or gps_full.empty:
+            st.info(f"Sin datos de GPS para {jsel}.")
+        else:
+            cg=dfx.mapear(gps_full)
+            if not cg.get("jugador"):
+                st.info("No se encontró la columna de jugador en la hoja GPS.")
+            else:
+                dg=gps_full[gps_full[cg["jugador"]].astype(str).str.lower()==jsel.lower()].copy()
+                if dg.empty:
+                    st.info(f"Sin datos de GPS para {jsel}.")
+                else:
+                    _vars_gps=[("td","DIST TOT"),("mtsmin","MTS/MIN"),("m19","MTS >19"),
+                               ("m24","MTS >24"),("sp24","#SP"),("vmax","VEL MAX")]
+                    tarjetas=[]
+                    for k,lab in _vars_gps:
+                        col=cg.get(k)
+                        if col and col in dg.columns:
+                            vals=to_num_col(dg[col]).dropna()
+                            vmax=vals.max() if len(vals)>0 else None
+                            vprom=vals.mean() if len(vals)>0 else None
+                        else:
+                            vmax=vprom=None
+                        tarjetas.append(_tarjeta_maxprom(lab,vmax,vprom))
+                    st.markdown(_fila(tarjetas),unsafe_allow_html=True)
+
+                    # ── Tabla: carga por microciclo (últimos 10) ──
+                    if cg.get("micro"):
+                        micol=cg["micro"]
+                        micros_j=_sort_micro([m for m in dg[micol].dropna().astype(str).unique() if m and m!="nan"])
+                        ult10=micros_j[-10:]
+                        filas=[]
+                        for m in ult10:
+                            gm=dg[dg[micol].astype(str)==m]
+                            fila={"Microciclo":m}
+                            for k,lab in _vars_gps:
+                                col=cg.get(k)
+                                if not (col and col in gm.columns):
+                                    fila[lab]=np.nan; continue
+                                v=to_num_col(gm[col]).dropna()
+                                if k=="vmax":
+                                    fila[lab]=v.max() if len(v)>0 else np.nan
+                                else:
+                                    fila[lab]=v.sum() if len(v)>0 else np.nan
+                            filas.append(fila)
+                        tabla_micro=pd.DataFrame(filas)
+                        st.markdown('<div class="subsec" style="font-size:13px;">Carga por microciclo (últimos 10)</div>',
+                                    unsafe_allow_html=True)
+                        for c in tabla_micro.columns:
+                            if c!="Microciclo": tabla_micro[c]=tabla_micro[c].round(1)
+                        html_table(tabla_micro,highlight_cols=["DIST TOT"],max_rows=10,height=380)
+                        tablas_pdf.append(("GPS - carga por microciclo (ult. 10)",tabla_micro,"DIST TOT"))
+                    tablas_pdf.append(("GPS - últimos registros",
+                                       dg[[c for c in dg.columns if not c.startswith("_")]].tail(15)))
+
+    # ═══════════════════════════════════════════════════════════════
+    #  CMJ
+    # ═══════════════════════════════════════════════════════════════
     if "CMJ" in secs:
-        ds=mostrar_sec("cmj","CMJ","🦵")
-        if ds is not None: tablas_pdf.append(("CMJ - últimos registros", ds.tail(15)))
+        st.markdown('<div class="subsec">🦵 CMJ</div>',unsafe_allow_html=True)
+        cmj=cargar_sheet("cmj")
+        if cmj is None or cmj.empty:
+            st.info(f"Sin datos de CMJ para {jsel}.")
+        else:
+            jc=jug_col_find(cmj)
+            dc=cmj[cmj[jc].astype(str).str.lower()==jsel.lower()] if jc else cmj.iloc[0:0]
+            if dc.empty:
+                st.info(f"Sin datos de CMJ para {jsel}.")
+            else:
+                _ALT=_col_resaltar(dc,["jump height"])
+                _ECC=_col_resaltar(dc,["eccentric peak"])
+                _RSI=_col_resaltar(dc,["rsi"])
+                _vars_cmj=[(_ALT,"ALTURA"),(_ECC,"ECC PEAK POWER"),(_RSI,"RSI-M")]
+                tarjetas=[]
+                for col,lab in _vars_cmj:
+                    if col and col in dc.columns:
+                        vals=to_num_col(dc[col]).dropna()
+                        vmax=vals.max() if len(vals)>0 else None
+                        vprom=vals.mean() if len(vals)>0 else None
+                    else:
+                        vmax=vprom=None
+                    tarjetas.append(_tarjeta_maxprom(lab,vmax,vprom))
+                st.markdown(_fila(tarjetas),unsafe_allow_html=True)
+
+                fecha_c=next((c for c in dc.columns if "fecha" in c.lower() and "_" not in c),None)
+                cols_tabla=([fecha_c] if fecha_c else [])+[c for c,_ in _vars_cmj if c]
+                dc5=dc.copy()
+                if fecha_c:
+                    dc5["_ford"]=pd.to_datetime(dc5[fecha_c],dayfirst=True,errors="coerce")
+                    dc5=dc5.sort_values("_ford",ascending=False)
+                dc5=dc5[cols_tabla].head(5).reset_index(drop=True)
+                st.markdown('<div class="subsec" style="font-size:13px;">Últimas 5 evaluaciones</div>',unsafe_allow_html=True)
+                html_table(dc5,highlight_cols=[_ALT] if _ALT else None,max_rows=5,height=230)
+                tablas_pdf.append(("CMJ - últimas 5 evaluaciones",dc5,_ALT))
+
+    # ═══════════════════════════════════════════════════════════════
+    #  NÓRDICO
+    # ═══════════════════════════════════════════════════════════════
     if "Nórdico" in secs:
-        ds=mostrar_sec("nordico","Nórdico","💪")
-        if ds is not None: tablas_pdf.append(("Nórdico - últimos registros", ds.tail(15)))
+        st.markdown('<div class="subsec">💪 Nórdico</div>',unsafe_allow_html=True)
+        nor=cargar_sheet("nordico")
+        if nor is None or nor.empty:
+            st.info(f"Sin datos de Nórdico para {jsel}.")
+        else:
+            jc=jug_col_find(nor)
+            dn=nor[nor[jc].astype(str).str.lower()==jsel.lower()] if jc else nor.iloc[0:0]
+            if dn.empty:
+                st.info(f"Sin datos de Nórdico para {jsel}.")
+            else:
+                _FD=_col_resaltar(dn,["r max force"]) or _col_resaltar(dn,["fza der"])
+                _FI=_col_resaltar(dn,["l max force"]) or _col_resaltar(dn,["fza izq"])
+                _DIF=_col_resaltar(dn,["max imbalance"]) or _col_resaltar(dn,["asym"])
+                _MASA=_col_resaltar(dn,["masaalcanzada"]) or _col_resaltar(dn,["masa alcanzada"])
+                _vars_nor=[(_FD,"FZA D"),(_FI,"FZA I"),(_DIF,"DIF %"),(_MASA,"MASA ALCANZADA")]
+                tarjetas=[]
+                for col,lab in _vars_nor:
+                    if col and col in dn.columns:
+                        vals=to_num_col(dn[col]).dropna()
+                        vmax=vals.max() if len(vals)>0 else None
+                        vprom=vals.mean() if len(vals)>0 else None
+                    else:
+                        vmax=vprom=None
+                    tarjetas.append(_tarjeta_maxprom(lab,vmax,vprom))
+                st.markdown(_fila(tarjetas),unsafe_allow_html=True)
+
+                fecha_c=next((c for c in dn.columns if "fecha" in c.lower() and "_" not in c),None)
+                cols_tabla=([fecha_c] if fecha_c else [])+[c for c,_ in _vars_nor if c]
+                dn5=dn.copy()
+                if fecha_c:
+                    dn5["_ford"]=pd.to_datetime(dn5[fecha_c],dayfirst=True,errors="coerce")
+                    dn5=dn5.sort_values("_ford",ascending=False)
+                dn5=dn5[cols_tabla].head(5).reset_index(drop=True)
+                st.markdown('<div class="subsec" style="font-size:13px;">Últimas 5 evaluaciones</div>',unsafe_allow_html=True)
+                html_table(dn5,highlight_cols=[_DIF] if _DIF else None,max_rows=5,height=230)
+                tablas_pdf.append(("Nórdico - últimas 5 evaluaciones",dn5,_DIF))
+
+    # ═══════════════════════════════════════════════════════════════
+    #  VBT
+    # ═══════════════════════════════════════════════════════════════
     if "VBT" in secs:
-        ds=mostrar_sec("vbt","VBT","⚡")
-        if ds is not None: tablas_pdf.append(("VBT - últimos registros", ds.tail(15)))
+        st.markdown('<div class="subsec">⚡ VBT</div>',unsafe_allow_html=True)
+        vbt=cargar_sheet("vbt")
+        if vbt is None or vbt.empty:
+            st.info(f"Sin datos de VBT para {jsel}.")
+        else:
+            jc=jug_col_find(vbt)
+            dv=vbt[vbt[jc].astype(str).str.lower()==jsel.lower()] if jc else vbt.iloc[0:0]
+            if dv.empty:
+                st.info(f"Sin datos de VBT para {jsel}.")
+            else:
+                def _col_carga(pct):
+                    for c in dv.columns:
+                        cl=c.lower().replace(" ","")
+                        if str(pct) in cl and ("carga" in cl or "rel" in cl or "%" in c):
+                            return c
+                    return None
+                def _color_carga(v):
+                    if v is None or pd.isna(v): return "#64748b"
+                    if v<0.9: return "#ef4444"
+                    if v<1.2: return "#fbbf24"
+                    return "#4ade80"
+                tarjetas=[]; cols_vbt=[]
+                for pct in [60,70,80,90]:
+                    col=_col_carga(pct)
+                    prom=None
+                    if col and col in dv.columns:
+                        vals=to_num_col(dv[col]).dropna()
+                        prom=vals.mean() if len(vals)>0 else None
+                        cols_vbt.append(col)
+                    tarjetas.append(_tarjeta_color(f"{pct}% CARGA-REL",prom,_color_carga(prom)))
+                st.markdown(_fila(tarjetas),unsafe_allow_html=True)
+                st.caption("🔴 <0.9 · 🟡 0.9–1.2 · 🟢 ≥1.2")
+                if cols_vbt:
+                    fecha_c=next((c for c in dv.columns if "fecha" in c.lower() and "_" not in c),None)
+                    dv5=dv[[fecha_c]+cols_vbt if fecha_c else cols_vbt].tail(5).reset_index(drop=True)
+                    html_table(dv5,max_rows=5,height=230)
+                    tablas_pdf.append(("VBT - últimos registros",dv5,None))
+
+    # ═══════════════════════════════════════════════════════════════
+    #  LESIONES
+    # ═══════════════════════════════════════════════════════════════
     if "Lesiones" in secs:
         st.markdown('<div class="subsec">🏥 Historial médico</div>',unsafe_allow_html=True)
         les=cargar_sheet("lesiones")
@@ -1612,30 +1791,53 @@ def pagina_resumen():
             dl=les[les[jc].astype(str).str.lower()==jsel.lower()] if jc else les.iloc[0:0]
             if not dl.empty:
                 st.dataframe(dl,use_container_width=True,hide_index=True)
-                tablas_pdf.append(("Historial médico", dl[[c for c in dl.columns if not c.startswith("_")]]))
+                tablas_pdf.append(("Historial médico", dl[[c for c in dl.columns if not c.startswith("_")]],None))
             else:
                 st.info(f"Sin registros médicos para {jsel}.")
         else:
             st.info("No se pudo cargar la hoja de lesiones.")
 
-    # ── Gráfico de evolución GPS (si hay fecha + distancia) ─────────
-    gps_full=cargar_sheet("gps")
-    if gps_full is not None and not gps_full.empty and "GPS" in secs:
-        jc_g=jug_col_find(gps_full)
-        fcol=next((c for c in gps_full.columns if "fecha" in c.lower() and "_" not in c),None)
-        dcol=next((c for c in gps_full.columns if "tot dist" in c.lower() or "dist" in c.lower()),None)
-        if jc_g and fcol and dcol:
-            dg=gps_full[gps_full[jc_g].astype(str).str.lower()==jsel.lower()].copy()
-            dg["_f"]=pd.to_datetime(dg[fcol],dayfirst=True,errors="coerce")
-            dg[dcol]=to_num_col(dg[dcol])
-            dg=dg.dropna(subset=["_f",dcol]).sort_values("_f")
-            if not dg.empty:
-                st.markdown('<div class="subsec">📈 Evolución de distancia recorrida (GPS)</div>',unsafe_allow_html=True)
-                figr=px.line(dg,x="_f",y=dcol,markers=True,template="plotly_dark",
-                             labels={"_f":"Fecha",dcol:"Distancia (m)"})
-                figr.update_traces(line_color="#c8102e",marker_color="#fff",line_width=2)
-                plotly_dark(figr,280)
-                st.plotly_chart(figr,use_container_width=True)
+    # ═══════════════════════════════════════════════════════════════
+    #  GRÁFICO DE BARRAS MENSUAL — DIST TOT / MTS>19 / MTS>24
+    # ═══════════════════════════════════════════════════════════════
+    if "GPS" in secs:
+        gps_full=cargar_sheet("gps")
+        if gps_full is not None and not gps_full.empty:
+            cg=dfx.mapear(gps_full)
+            if cg.get("jugador") and cg.get("fecha"):
+                dgm=gps_full[gps_full[cg["jugador"]].astype(str).str.lower()==jsel.lower()].copy()
+                dgm["_f"]=pd.to_datetime(dgm[cg["fecha"]],dayfirst=True,errors="coerce")
+                dgm=dgm.dropna(subset=["_f"])
+                if not dgm.empty:
+                    dgm["_mes"]=dgm["_f"].dt.to_period("M").astype(str)
+                    agg={}
+                    for k,lab in [("td","DIST TOT"),("m19","MTS >19"),("m24","MTS >24")]:
+                        col=cg.get(k)
+                        agg[lab]=to_num_col(dgm[col]) if col and col in dgm.columns else np.nan
+                    dgm=dgm.assign(**agg)
+                    mens=dgm.groupby("_mes")[["DIST TOT","MTS >19","MTS >24"]].sum().reset_index()
+                    mens=mens.sort_values("_mes")
+                    if not mens.empty:
+                        st.markdown('<div class="subsec">📊 Carga mensual — DIST TOT / MTS&gt;19 / MTS&gt;24</div>',
+                                    unsafe_allow_html=True)
+                        figb=go.Figure()
+                        figb.add_trace(go.Bar(x=mens["_mes"],y=mens["DIST TOT"],name="DIST TOT",
+                                              marker_color="#c8102e"))
+                        figb.add_trace(go.Bar(x=mens["_mes"],y=mens["MTS >19"],name="MTS >19",
+                                              marker_color="#facc15"))
+                        figb.add_trace(go.Bar(x=mens["_mes"],y=mens["MTS >24"],name="MTS >24",
+                                              marker_color="#4ade80"))
+                        figb.update_layout(barmode="group",template="plotly_dark",
+                                           paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(0,0,0,0)",
+                                           margin=dict(l=0,r=0,t=20,b=0),height=340,
+                                           font=dict(color="#ffffff"),
+                                           legend=dict(orientation="h",y=1.12,x=0.5,xanchor="center",
+                                                       bgcolor="rgba(8,18,38,0.75)",
+                                                       bordercolor="rgba(255,255,255,0.15)",borderwidth=1,
+                                                       font=dict(color="#ffffff",size=11)))
+                        figb.update_xaxes(color="#ffffff",title="Mes")
+                        figb.update_yaxes(color="#ffffff",title="Metros")
+                        st.plotly_chart(figb,use_container_width=True)
 
     # ── Exportar informe individual completo (un solo PDF) ─────────
     st.markdown("---")
