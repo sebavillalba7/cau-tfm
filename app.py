@@ -1485,30 +1485,186 @@ def pagina_demandas():
 # ══════════════════════════════════════════════════════════════
 # CONTROL DE PARTIDOS
 # ══════════════════════════════════════════════════════════════
+def _tarjeta_maxprom(label,val_max,val_prom,color="#fff"):
+    """Tarjeta con valor MAX grande arriba y PROMEDIO chico abajo."""
+    vmax_s="—" if val_max is None or pd.isna(val_max) else f"{val_max:,.1f}"
+    vprom_s="—" if val_prom is None or pd.isna(val_prom) else f"{val_prom:,.1f}"
+    return (f'<div style="flex:1;min-width:120px;background:rgba(8,18,38,.9);'
+            f'border:1px solid rgba(26,90,180,.3);border-radius:12px;padding:12px 10px;text-align:center;">'
+            f'<div style="font-size:9px;letter-spacing:1px;color:#94a3b8;text-transform:uppercase;'
+            f'font-weight:700;margin-bottom:4px;">{label}</div>'
+            f'<div style="font-size:22px;font-weight:900;color:{color};line-height:1.1;">{vmax_s}</div>'
+            f'<div style="font-size:11px;color:#64748b;margin-top:2px;">prom. {vprom_s}</div></div>')
+
+def _tarjeta_color(label,valor,color):
+    v_s="—" if valor is None or pd.isna(valor) else f"{valor:.2f}"
+    return (f'<div style="flex:1;min-width:110px;background:{color}18;'
+            f'border:1px solid {color}55;border-radius:12px;padding:12px 10px;text-align:center;">'
+            f'<div style="font-size:9px;letter-spacing:1px;color:#94a3b8;text-transform:uppercase;'
+            f'font-weight:700;margin-bottom:4px;">{label}</div>'
+            f'<div style="font-size:22px;font-weight:900;color:{color};line-height:1.1;">{v_s}</div></div>')
+
+def _fila(items):
+    return ('<div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 14px;">'
+            + "".join(items) + "</div>")
+
+def _sort_micro(vals):
+    def _k(z):
+        try: return (0, float(str(z).replace(",",".")))
+        except Exception: return (1, len(str(z)), str(z))
+    return sorted(vals, key=_k)
+
 def pagina_control_partidos():
     st.markdown('<div class="sec-title">⚽ Control de Partidos</div>',unsafe_allow_html=True)
-    df=cargar_sheet("partidos")
-    _pdf_hoja("Control de Partidos",df,"Registro de partidos",key="part",
-              notas="Registro de partidos. Fuente: Google Sheets - hoja Partidos.")
-    if df.empty: no_data("Control de Partidos"); return
+    st.markdown(
+        '<div style="background:rgba(26,90,180,0.08);border:1px solid rgba(26,90,180,0.25);'
+        'border-radius:12px;padding:10px 16px;margin-bottom:12px;font-size:11.5px;color:#94a3b8;">'
+        'Fuente: <b style="color:#93c5fd;">GPS_LONG</b> (sesiones de tipo partido, campo SES/RIVAL). '
+        'No se usa la hoja MD, por regla de datos del proyecto.</div>', unsafe_allow_html=True)
 
-    jcol=jug_col_find(df)
-    dff,_=filtro_anio_widget(df,"part")
-    fc1,fc2=st.columns(2)
-    with fc1: jsel=st.selectbox("Jugador",["Todos"]+sorted(dff[jcol].dropna().astype(str).unique().tolist()),key="part_jug")
-    if jsel!="Todos": dff=dff[dff[jcol].astype(str)==jsel]
+    gps=cargar_sheet("gps")
+    if gps is None or gps.empty: no_data("GPS"); return
+    cg=dfx.mapear(gps)
+    if not cg.get("jugador"):
+        st.error("No se encontró la columna JUGADOR en GPS_LONG."); return
 
-    c1,c2,c3=st.columns(3)
-    c1.metric("📋 Registros",len(dff))
-    min_col=next((c for c in dff.columns if "min" in c.lower()),None)
+    rival_col=next((c for c in gps.columns if c.strip().upper()=="RIVAL"),None)
+    res_col=next((c for c in gps.columns if c.strip().upper()=="RES"),None)
+    m1924_col=next((c for c in gps.columns if "19-24" in c.replace(" ","").upper()),None)
+    pos_col=cg.get("pos") or pos_col_find(gps)
+    fecha_col=cg.get("fecha")
+    ses_col=cg.get("ses")
+    min_col=cg.get("min")
+    jcol=cg["jugador"]
+
+    mask=pd.Series(False,index=gps.index)
+    if ses_col: mask=mask | dfx.es_partido(gps[ses_col])
+    if rival_col: mask=mask | gps[rival_col].astype(str).str.strip().replace("nan","").ne("")
+    dp=gps[mask].copy()
+    if dp.empty:
+        st.info("No se identificaron sesiones de partido en GPS_LONG (revisá la columna SES o RIVAL)."); return
+
+    # ── Filtros ──────────────────────────────────────────────────
+    st.markdown('<div class="filter-bar">',unsafe_allow_html=True)
+    fc1,fc2,fc3,fc4=st.columns(4)
+    with fc1:
+        riv_opts=sorted([r for r in dp[rival_col].dropna().astype(str).unique() if r and r!="nan"]) if rival_col else []
+        riv_sel=st.multiselect("Rival",riv_opts,default=[],key="cp_rival")
+    with fc2:
+        pos_opts=sorted([p for p in dp[pos_col].dropna().astype(str).unique() if p and p!="nan"]) if pos_col else []
+        pos_sel=st.multiselect("Posición",pos_opts,default=[],key="cp_pos")
+    with fc3:
+        res_opts=sorted([r for r in dp[res_col].dropna().astype(str).unique() if r and r!="nan"]) if res_col else []
+        res_sel=st.multiselect("Resultado",res_opts,default=[],key="cp_res")
+    with fc4:
+        jug_opts=sorted([j for j in dp[jcol].dropna().astype(str).unique() if j and j!="nan"])
+        jug_sel=st.selectbox("Jugador",["Todos"]+jug_opts,key="cp_jug")
+    st.markdown('</div>',unsafe_allow_html=True)
+
+    dff=dp.copy()
+    if riv_sel and rival_col: dff=dff[dff[rival_col].astype(str).isin(riv_sel)]
+    if pos_sel and pos_col: dff=dff[dff[pos_col].astype(str).isin(pos_sel)]
+    if res_sel and res_col: dff=dff[dff[res_col].astype(str).isin(res_sel)]
+    if jug_sel!="Todos": dff=dff[dff[jcol].astype(str)==jug_sel]
+    if dff.empty: st.warning("Sin registros para los filtros seleccionados."); return
+
+    _vars_cp=[("min","MIN"),("td","TOT DIST"),("m19","MTS >19"),("m24","MTS >24"),
+              ("sp24","#SP"),("vmax","VEL MAX")]
+
+    # ═══════════════════════════════════════════════════════════════
+    #  LÍNEA 1 — Datos por posición (excluye arqueros, solo 70'+)
+    # ═══════════════════════════════════════════════════════════════
+    st.markdown('<div class="subsec">👥 Datos por posición</div>',unsafe_allow_html=True)
+    st.caption("Excluye arqueros · solo jugadores con 70' o más en el partido · "
+               "arriba: máximo alcanzado por un jugador · abajo: promedio de la posición")
+    dff_pos=dff.copy()
+    if pos_col:
+        dff_pos=dff_pos[~dff_pos[pos_col].astype(str).str.upper().str.contains("ARQ|GK|PORTER",na=False)]
     if min_col:
-        mvals=to_num_col(dff[min_col])
-        c2.metric("⏱️ Min. totales",int(mvals.sum()) if not mvals.isna().all() else "—")
-        c3.metric("⏱️ Min. promedio",round(mvals.mean(),1) if not mvals.isna().all() else "—")
+        dff_pos=dff_pos[to_num_col(dff_pos[min_col])>=70]
+    tarjetas1=[]
+    for k,lab in _vars_cp:
+        col=cg.get(k)
+        if col and col in dff_pos.columns:
+            vals=to_num_col(dff_pos[col]).dropna()
+            vmax=vals.max() if len(vals)>0 else None
+            vprom=vals.mean() if len(vals)>0 else None
+        else:
+            vmax=vprom=None
+        tarjetas1.append(_tarjeta_maxprom(lab,vmax,vprom))
+    st.markdown(_fila(tarjetas1),unsafe_allow_html=True)
 
-    num_p=[c for c in dff.columns if to_num_col(dff[c]).notna().sum()>len(dff)*0.3 and c not in ["AÑO","_fecha"]]
-    show_p=dff[[c for c in dff.columns if not c.startswith("_")]].reset_index(drop=True)
-    html_table(show_p, highlight_cols=num_p)
+    # ═══════════════════════════════════════════════════════════════
+    #  LÍNEA 2 — Sumatoria total / promedio por partido
+    # ═══════════════════════════════════════════════════════════════
+    st.markdown('<div class="subsec">🏆 Totales del equipo</div>',unsafe_allow_html=True)
+    st.caption("Excluye arqueros · arriba: sumatoria total del período · abajo: promedio por partido")
+    dff_eq=dff.copy()
+    if pos_col:
+        dff_eq=dff_eq[~dff_eq[pos_col].astype(str).str.upper().str.contains("ARQ|GK|PORTER",na=False)]
+    if fecha_col and rival_col:
+        dff_eq["_pid"]=dff_eq[fecha_col].astype(str)+"|"+dff_eq[rival_col].astype(str)
+    elif fecha_col:
+        dff_eq["_pid"]=dff_eq[fecha_col].astype(str)
+    else:
+        dff_eq["_pid"]="unico"
+    tarjetas2=[]
+    for k,lab in _vars_cp:
+        col=cg.get(k)
+        if col and col in dff_eq.columns:
+            serie=to_num_col(dff_eq[col])
+            tmp=dff_eq.assign(_v=serie).dropna(subset=["_v"])
+            if k=="vmax":
+                por_partido=tmp.groupby("_pid")["_v"].max()
+                total=por_partido.max() if len(por_partido)>0 else None
+            else:
+                por_partido=tmp.groupby("_pid")["_v"].sum()
+                total=por_partido.sum() if len(por_partido)>0 else None
+            prom=por_partido.mean() if len(por_partido)>0 else None
+        else:
+            total=prom=None
+        tarjetas2.append(_tarjeta_maxprom(lab,total,prom))
+    st.markdown(_fila(tarjetas2),unsafe_allow_html=True)
+
+    # ═══════════════════════════════════════════════════════════════
+    #  TABLA DE REGISTROS
+    # ═══════════════════════════════════════════════════════════════
+    st.markdown('<div class="subsec">📋 Registros</div>',unsafe_allow_html=True)
+    tabla=pd.DataFrame()
+    tabla["JUGADOR"]=dff[jcol].astype(str)
+    if rival_col: tabla["RIVAL"]=dff[rival_col].astype(str)
+    if res_col: tabla["RES"]=dff[res_col].astype(str)
+    if fecha_col: tabla["FECHA"]=dff[fecha_col].astype(str)
+    if pos_col: tabla["POS"]=dff[pos_col].astype(str)
+
+    _min=to_num_col(dff[min_col]) if min_col else pd.Series(np.nan,index=dff.index)
+    _td=to_num_col(dff[cg["td"]]) if cg.get("td") else pd.Series(np.nan,index=dff.index)
+    _mtsmin=to_num_col(dff[cg["mtsmin"]]) if cg.get("mtsmin") else pd.Series(np.nan,index=dff.index)
+    _m19=to_num_col(dff[cg["m19"]]) if cg.get("m19") else pd.Series(np.nan,index=dff.index)
+    _m24=to_num_col(dff[cg["m24"]]) if cg.get("m24") else pd.Series(np.nan,index=dff.index)
+    _sp24=to_num_col(dff[cg["sp24"]]) if cg.get("sp24") else pd.Series(np.nan,index=dff.index)
+    _vmax=to_num_col(dff[cg["vmax"]]) if cg.get("vmax") else pd.Series(np.nan,index=dff.index)
+    _m1924=to_num_col(dff[m1924_col]) if m1924_col else pd.Series(np.nan,index=dff.index)
+
+    tabla["MIN"]=_min.round(0)
+    tabla["TOT DIST"]=_td.round(1)
+    tabla["MTS/MIN"]=_mtsmin.round(2)
+    tabla["MTS>19/MIN"]=(_m19/_min.replace(0,np.nan)).round(2)
+    tabla["MTS 19-24 KM/H"]=_m1924.round(1)
+    tabla["MTS >19"]=_m19.round(1)
+    tabla["MTS >24"]=_m24.round(1)
+    tabla["#SP"]=_sp24.round(1)
+    tabla["VEL MAX"]=_vmax.round(1)
+    tabla=tabla.reset_index(drop=True)
+
+    html_table(tabla,highlight_cols=["TOT DIST","MTS >19"],max_rows=25,height=460)
+    pdf_btn("Control de Partidos",
+            kpis=[("Registros",len(tabla)),("Rival",", ".join(riv_sel) if riv_sel else "Todos"),
+                  ("Posición",", ".join(pos_sel) if pos_sel else "Todas"),
+                  ("Resultado",", ".join(res_sel) if res_sel else "Todos")],
+            tablas=[("Registros de partido",tabla,"TOT DIST")],
+            orientacion="L",key="part",
+            notas="Fuente: GPS_LONG, sesiones de tipo partido. No incluye datos de la hoja MD.")
 
 # ══════════════════════════════════════════════════════════════
 # RESUMEN INDIVIDUAL
@@ -1566,35 +1722,6 @@ def pagina_resumen():
                 f'<span class="chip chip-green">Edad: {edad}</span></div></div></div>',
                 unsafe_allow_html=True)
 
-    # ── Helper: tarjeta con valor MAX grande y PROMEDIO chico abajo ──
-    def _tarjeta_maxprom(label,val_max,val_prom,color="#fff"):
-        vmax_s="—" if val_max is None or pd.isna(val_max) else f"{val_max:,.1f}"
-        vprom_s="—" if val_prom is None or pd.isna(val_prom) else f"{val_prom:,.1f}"
-        return (f'<div style="flex:1;min-width:120px;background:rgba(8,18,38,.9);'
-                f'border:1px solid rgba(26,90,180,.3);border-radius:12px;padding:12px 10px;text-align:center;">'
-                f'<div style="font-size:9px;letter-spacing:1px;color:#94a3b8;text-transform:uppercase;'
-                f'font-weight:700;margin-bottom:4px;">{label}</div>'
-                f'<div style="font-size:22px;font-weight:900;color:{color};line-height:1.1;">{vmax_s}</div>'
-                f'<div style="font-size:11px;color:#64748b;margin-top:2px;">prom. {vprom_s}</div></div>')
-
-    def _tarjeta_color(label,valor,color):
-        v_s="—" if valor is None or pd.isna(valor) else f"{valor:.2f}"
-        return (f'<div style="flex:1;min-width:110px;background:{color}18;'
-                f'border:1px solid {color}55;border-radius:12px;padding:12px 10px;text-align:center;">'
-                f'<div style="font-size:9px;letter-spacing:1px;color:#94a3b8;text-transform:uppercase;'
-                f'font-weight:700;margin-bottom:4px;">{label}</div>'
-                f'<div style="font-size:22px;font-weight:900;color:{color};line-height:1.1;">{v_s}</div></div>')
-
-    def _fila(items):
-        return ('<div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 14px;">'
-                + "".join(items) + "</div>")
-
-    def _sort_micro(vals):
-        def _k(z):
-            try: return (0, float(str(z).replace(",",".")))
-            except Exception: return (1, len(str(z)), str(z))
-        return sorted(vals, key=_k)
-
     tablas_pdf=[]; kpis_pdf=[("Jugador",jsel),("Posición",pos)]
 
     # ═══════════════════════════════════════════════════════════════
@@ -1629,6 +1756,7 @@ def pagina_resumen():
                     st.markdown(_fila(tarjetas),unsafe_allow_html=True)
 
                     # ── Tabla: carga por microciclo (últimos 10) ──
+                    _vars_tabla=_vars_gps+[("acel","ACEL"),("des","DES")]
                     if cg.get("micro"):
                         micol=cg["micro"]
                         micros_j=_sort_micro([m for m in dg[micol].dropna().astype(str).unique() if m and m!="nan"])
@@ -1637,18 +1765,21 @@ def pagina_resumen():
                         for m in ult10:
                             gm=dg[dg[micol].astype(str)==m]
                             fila={"Microciclo":m}
-                            for k,lab in _vars_gps:
+                            for k,lab in _vars_tabla:
                                 col=cg.get(k)
                                 if not (col and col in gm.columns):
                                     fila[lab]=np.nan; continue
                                 v=to_num_col(gm[col]).dropna()
                                 if k=="vmax":
                                     fila[lab]=v.max() if len(v)>0 else np.nan
+                                elif k=="mtsmin":
+                                    fila[lab]=v.mean() if len(v)>0 else np.nan
                                 else:
                                     fila[lab]=v.sum() if len(v)>0 else np.nan
                             filas.append(fila)
                         tabla_micro=pd.DataFrame(filas)
-                        st.markdown('<div class="subsec" style="font-size:13px;">Carga por microciclo (últimos 10)</div>',
+                        st.markdown('<div class="subsec" style="font-size:13px;">Carga por microciclo (últimos 10) — '
+                                    'MTS/MIN en promedio, resto acumulado, VEL MAX en máximo</div>',
                                     unsafe_allow_html=True)
                         for c in tabla_micro.columns:
                             if c!="Microciclo": tabla_micro[c]=tabla_micro[c].round(1)
@@ -1925,7 +2056,7 @@ def pagina_nutricion():
         if jsel!="Todos": dff=dff[dff[jcol].astype(str)==jsel]
     with fc4:
         if micro_col:
-            micros_op=sorted(dff[micro_col].dropna().astype(str).unique().tolist())
+            micros_op=_sort_micro(dff[micro_col].dropna().astype(str).unique().tolist())
             msel=st.multiselect("Microciclos a comparar",micros_op,
                                 default=micros_op[-2:] if len(micros_op)>=2 else micros_op,
                                 key="nutri_micro")
@@ -1960,7 +2091,7 @@ def pagina_nutricion():
     # ── Comparativa entre microciclos (% de diferencia) ───────────────
     if micro_col and len(msel)>=2 and (peso_col or pliegue_col):
         st.markdown('<div class="subsec">Comparativa entre microciclos</div>',unsafe_allow_html=True)
-        m_ini,m_fin=sorted(msel)[0],sorted(msel)[-1]
+        m_ini,m_fin=_sort_micro(msel)[0],_sort_micro(msel)[-1]
         base=dff.copy()
         base["_p"]=to_num_col(base[peso_col]) if peso_col else np.nan
         base["_pl"]=to_num_col(base[pliegue_col]) if pliegue_col else np.nan
