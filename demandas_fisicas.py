@@ -558,7 +558,7 @@ def pagina_demandas_fisicas(cargar_sheet, pdf_btn=None):
         with c3:
             mics2 = ["Todos"] + sorted([x for x in d["_micro"].unique() if x and x != "nan"],
                                        key=lambda z: (len(z), z), reverse=True)
-            m2sel = st.selectbox("Microciclo", mics2, key="ew_micro")
+            m2sel = st.selectbox("Microciclo", mics2, index=1 if len(mics2) > 1 else 0, key="ew_micro")
         with c4:
             val2 = d["_fecha"].dropna()
             rango2 = None
