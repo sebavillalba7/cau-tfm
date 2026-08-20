@@ -513,20 +513,29 @@ def render_menu_propio():
         if st.button("☰ Menú",key="btn_menu_propio",use_container_width=True):
             st.session_state.menu_abierto=not st.session_state.menu_abierto
     if st.session_state.menu_abierto:
-        st.markdown('<div style="background:#071428;border:1px solid rgba(200,16,46,0.35);border-radius:14px;padding:14px 16px;margin:8px 0 16px;">',unsafe_allow_html=True)
-        st.markdown('<p style="font-size:10px;letter-spacing:3px;color:#94a3b8;text-transform:uppercase;margin:0 0 10px;">Navegación</p>',unsafe_allow_html=True)
-        cols=st.columns(3)
-        i=0
-        for key,icon,label in MENU_PAGINAS:
-            if tiene_acceso(u,key):
-                with cols[i%3]:
-                    if st.button(f"{icon}  {label}",key=f"navm_{key}",use_container_width=True):
-                        st.session_state.pagina=key;st.session_state.menu_abierto=False;st.rerun()
+        st.markdown('<div style="background:#071428;border:1px solid rgba(200,16,46,0.35);border-radius:14px;padding:12px 14px;margin:8px 0 16px;">',unsafe_allow_html=True)
+        st.markdown('<p style="font-size:10px;letter-spacing:3px;color:#94a3b8;text-transform:uppercase;margin:0 0 8px;">Navegación</p>',unsafe_allow_html=True)
+        try:
+            grid = st.container(key="menu_grid_nav")
+            st.markdown('<style>.st-key-menu_grid_nav .stButton>button{padding:4px 6px!important;'
+                       'font-size:11px!important;font-weight:700!important;min-height:34px!important;'
+                       'line-height:1.15!important;}</style>',unsafe_allow_html=True)
+        except TypeError:
+            grid = st.container()  # Streamlit viejo sin soporte de key en container
+        with grid:
+            cols5=st.columns(5)
+            i=0
+            for key,icon,label in MENU_PAGINAS:
+                if tiene_acceso(u,key):
+                    with cols5[i%5]:
+                        if st.button(f"**{icon} {label}**",key=f"navm_{key}",use_container_width=True):
+                            st.session_state.pagina=key;st.session_state.menu_abierto=False;st.rerun()
+                    i+=1
+            if tiene_acceso(u,"admin"):
+                with cols5[i%5]:
+                    if st.button("**🔧 Admin**",key="navm_admin",use_container_width=True):
+                        st.session_state.pagina="admin";st.session_state.menu_abierto=False;st.rerun()
                 i+=1
-        if tiene_acceso(u,"admin"):
-            with cols[i%3]:
-                if st.button("🔧  Panel Admin",key="navm_admin",use_container_width=True):
-                    st.session_state.pagina="admin";st.session_state.menu_abierto=False;st.rerun()
         st.markdown("---")
         if st.button("🚪  Cerrar sesión",key="navm_out",use_container_width=True):
             st.session_state.logged=False;st.session_state.usuario=None;st.session_state.pagina="home";st.rerun()
