@@ -32,24 +32,10 @@ st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800;900&display=swap');
 .stApp{background:linear-gradient(135deg,#0c1e3e 0%,#112347 50%,#0c1e3e 100%);color:#e8ecf4;font-family:'Inter',sans-serif;}
-header[data-testid="stHeader"]{background:transparent!important;box-shadow:none!important;overflow:visible!important;}
+header[data-testid="stHeader"]{background:transparent!important;box-shadow:none!important;}
 #MainMenu{visibility:hidden!important;}
 [data-testid="stToolbar"]{visibility:hidden!important;}
 [data-testid="stDecoration"]{display:none!important;}
-/* Flecha para abrir/cerrar el sidebar: distintas versiones de Streamlit usan
-   distintos data-testid para este control, y a veces queda tapada por el
-   propio layout del header. Posición FIJA en la esquina para que SIEMPRE
-   se pueda ver y tocar, sin depender del contenedor padre. */
-[data-testid="collapsedControl"],[data-testid="stSidebarCollapsedControl"],
-button[kind="header"],[data-testid="baseButton-headerNoPadding"]{
-    visibility:visible!important;display:flex!important;opacity:1!important;
-    position:fixed!important;top:10px!important;left:10px!important;z-index:999999!important;
-    background:rgba(200,16,46,0.85)!important;border-radius:8px!important;padding:6px!important;
-}
-[data-testid="collapsedControl"] svg,[data-testid="stSidebarCollapsedControl"] svg,
-button[kind="header"] svg,[data-testid="baseButton-headerNoPadding"] svg{
-    fill:#ffffff!important;color:#ffffff!important;width:22px!important;height:22px!important;
-}
 section[data-testid="stSidebar"]{background:linear-gradient(180deg,#091528 0%,#0d1e38 100%)!important;border-right:1px solid rgba(200,16,46,0.3)!important;}
 section[data-testid="stSidebar"] *{color:#e8ecf4!important;}
 section[data-testid="stSidebar"] .stButton>button{background:rgba(255,255,255,0.04)!important;color:#e8ecf4!important;border:1px solid rgba(255,255,255,0.07)!important;border-radius:10px!important;font-weight:500!important;text-align:left!important;padding-left:14px!important;transition:all .2s!important;}
@@ -489,6 +475,12 @@ def pagina_login():
 # ══════════════════════════════════════════════════════════════
 # SIDEBAR
 # ══════════════════════════════════════════════════════════════
+MENU_PAGINAS=[("home","🏠","Inicio"),("historial","👤","Historial Jugadores"),
+              ("estadisticas_medicas","🏥","Estadísticas Médicas"),("evaluaciones","⚡","Evaluaciones Físicas"),
+              ("riesgo_lesion","🤖","Riesgo de Lesión"),("demandas_fisicas","📡","Demandas Físicas"),
+              ("control_partidos","⚽","Control de Partidos"),("nutricion","🥗","Control Nutricional"),
+              ("resumen_individual","📄","Resumen Individual")]
+
 def render_sidebar():
     u=st.session_state.usuario
     with st.sidebar:
@@ -496,18 +488,49 @@ def render_sidebar():
         esc=f'<img src="data:image/png;base64,{b64}" style="width:56px;height:56px;object-fit:contain;filter:drop-shadow(0 0 10px rgba(200,16,46,.5));">' if b64 else "⚽"
         st.markdown(f'<div style="text-align:center;padding:14px 0 12px;border-bottom:1px solid rgba(200,16,46,.25);margin-bottom:14px;">{esc}<div style="font-family:\'Bebas Neue\',sans-serif;font-size:16px;letter-spacing:3px;margin-top:8px;color:#fff;">CAU · UNIÓN</div><div style="font-size:12px;color:#f87171;margin-top:3px;">{AREAS[u["area"]]["icon"]} {u["nombre"]}</div><div style="font-size:10px;color:#475569;margin-top:2px;">{u["rol"]} · {u["area"]}</div></div>',unsafe_allow_html=True)
         st.markdown('<p style="font-size:10px;letter-spacing:3px;color:#475569;text-transform:uppercase;margin:0 0 8px;">MENÚ</p>',unsafe_allow_html=True)
-        for key,icon,label in [("home","🏠","Inicio"),("historial","👤","Historial Jugadores"),("estadisticas_medicas","🏥","Estadísticas Médicas"),("evaluaciones","⚡","Evaluaciones Físicas"),("riesgo_lesion","🤖","Riesgo de Lesión"),("demandas_fisicas","📡","Demandas Físicas"),("control_partidos","⚽","Control de Partidos"),("nutricion","🥗","Control Nutricional"),("resumen_individual","📄","Resumen Individual")]:
+        for key,icon,label in MENU_PAGINAS:
             if tiene_acceso(u,key):
                 if st.button(f"{icon}  {label}",key=f"nav_{key}",use_container_width=True):
-                    st.session_state.pagina=key;st.rerun()
+                    st.session_state.pagina=key;st.session_state.menu_abierto=False;st.rerun()
         if tiene_acceso(u,"admin"):
             st.markdown("---")
             pn=sum(1 for d in st.session_state.usuarios_extra.values() if not d.get("aprobado"))
             if st.button(f"🔧  Panel Admin {'🔴' if pn else ''}",key="nav_admin",use_container_width=True):
-                st.session_state.pagina="admin";st.rerun()
+                st.session_state.pagina="admin";st.session_state.menu_abierto=False;st.rerun()
         st.markdown("---")
         if st.button("🚪  Cerrar sesión",use_container_width=True,key="btn_out"):
             st.session_state.logged=False;st.session_state.usuario=None;st.session_state.pagina="home";st.rerun()
+
+def render_menu_propio():
+    """Botón de menú 100% controlado por la app (no depende de ningún
+    control interno de Streamlit para abrir/cerrar el sidebar nativo, que
+    en algunas versiones/pantallas queda inaccesible). Siempre visible,
+    arriba de cada página, funciona igual en desktop y celular."""
+    u=st.session_state.usuario
+    if "menu_abierto" not in st.session_state: st.session_state.menu_abierto=False
+    c1,c2=st.columns([1,6])
+    with c1:
+        if st.button("☰ Menú",key="btn_menu_propio",use_container_width=True):
+            st.session_state.menu_abierto=not st.session_state.menu_abierto
+    if st.session_state.menu_abierto:
+        st.markdown('<div style="background:#071428;border:1px solid rgba(200,16,46,0.35);border-radius:14px;padding:14px 16px;margin:8px 0 16px;">',unsafe_allow_html=True)
+        st.markdown('<p style="font-size:10px;letter-spacing:3px;color:#94a3b8;text-transform:uppercase;margin:0 0 10px;">Navegación</p>',unsafe_allow_html=True)
+        cols=st.columns(3)
+        i=0
+        for key,icon,label in MENU_PAGINAS:
+            if tiene_acceso(u,key):
+                with cols[i%3]:
+                    if st.button(f"{icon}  {label}",key=f"navm_{key}",use_container_width=True):
+                        st.session_state.pagina=key;st.session_state.menu_abierto=False;st.rerun()
+                i+=1
+        if tiene_acceso(u,"admin"):
+            with cols[i%3]:
+                if st.button("🔧  Panel Admin",key="navm_admin",use_container_width=True):
+                    st.session_state.pagina="admin";st.session_state.menu_abierto=False;st.rerun()
+        st.markdown("---")
+        if st.button("🚪  Cerrar sesión",key="navm_out",use_container_width=True):
+            st.session_state.logged=False;st.session_state.usuario=None;st.session_state.pagina="home";st.rerun()
+        st.markdown('</div>',unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════
 # HOME
@@ -2611,4 +2634,5 @@ if not st.session_state.logged:
 else:
     top_bar(logged=True,usuario=st.session_state.usuario)
     render_sidebar()
+    render_menu_propio()
     render_pagina()
