@@ -217,10 +217,12 @@ def plotly_dark(fig,h=300):
     return fig
 
 
-def html_table(df, highlight_cols=None, num_format=None, max_rows=15, height=420, max_cols=14):
+def html_table(df, highlight_cols=None, num_format=None, max_rows=15, height=420, max_cols=14, sortable=True):
     """max_rows/max_cols RECORTAN de verdad los datos enviados al browser. Antes max_rows solo
     decidia el CSS de scroll pero se renderizaban TODAS las filas: con la hoja GPS completa
-    (miles de filas x 60 cols) eso generaba ~250 MB de HTML -> MessageSizeError."""
+    (miles de filas x 60 cols) eso generaba ~250 MB de HTML -> MessageSizeError.
+    sortable=True agrega click-en-encabezado para ordenar (asc/desc), sin perder los colores
+    de fondo por celda (highlight_cols)."""
     if df is None or df.empty:
         st.info("Sin datos."); return
     _tf, _tc = len(df), len(df.columns)
@@ -228,7 +230,7 @@ def html_table(df, highlight_cols=None, num_format=None, max_rows=15, height=420
     if _tf > max_rows: df = df.head(max_rows)
     highlight_cols = highlight_cols or []
     num_format = num_format or {}
-    
+
     # Calcular rangos para escala de color por columna
     col_ranges = {}
     for col in highlight_cols:
@@ -244,7 +246,6 @@ def html_table(df, highlight_cols=None, num_format=None, max_rows=15, height=420
             mn, mx = col_ranges[col]
             if mx == mn: return "background:#1a3a6e;color:#fff"
             ratio = (v - mn) / (mx - mn)
-            # Verde alto → Rojo bajo
             r = int(220 * (1 - ratio) + 20 * ratio)
             g = int(80 * (1 - ratio) + 180 * ratio)
             b = int(60 * (1 - ratio) + 60 * ratio)
@@ -259,38 +260,88 @@ def html_table(df, highlight_cols=None, num_format=None, max_rows=15, height=420
         for col in df.columns:
             val = row[col]
             fmt = num_format.get(col, "")
+            is_num = False
             try:
                 fval = float(str(val).replace(",","."))
                 display = f"{fval:{fmt}}" if fmt else (f"{fval:.1f}" if fval != int(fval) else f"{int(fval)}")
+                sortval = fval
+                is_num = True
             except:
                 display = str(val) if str(val) not in ["nan","None","<NA>"] else "—"
+                sortval = display.lower()
             style = cell_color(col, val)
-            cells += f'<td style="text-align:center;padding:9px 14px;border-bottom:1px solid rgba(255,255,255,0.05);white-space:nowrap;{style}">{display}</td>'
+            sv = str(sortval).replace('"',"&quot;")
+            cells += (f'<td data-sort="{sv}" data-num="{1 if is_num else 0}" '
+                      f'style="text-align:center;padding:9px 14px;border-bottom:1px solid rgba(255,255,255,0.05);'
+                      f'white-space:nowrap;{style}">{display}</td>')
         rows_html += f"<tr>{cells}</tr>"
 
+    cur = "cursor:pointer;user-select:none;" if sortable else ""
     headers = ""
-    for col in df.columns:
-        headers += f'<th style="text-align:center;padding:10px 14px;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#60a5fa;background:rgba(26,90,180,0.25);border-bottom:2px solid rgba(26,90,180,0.4);white-space:nowrap;">{col}</th>'
+    for i, col in enumerate(df.columns):
+        arrow = ' <span class="sort-arrow" style="opacity:.4;font-size:8px;">⇅</span>' if sortable else ""
+        onclick = f' onclick="sortTbl({i})"' if sortable else ""
+        headers += (f'<th{onclick} style="text-align:center;padding:10px 14px;font-size:10px;font-weight:700;'
+                    f'letter-spacing:1.5px;text-transform:uppercase;color:#60a5fa;background:rgba(26,90,180,0.25);'
+                    f'border-bottom:2px solid rgba(26,90,180,0.4);white-space:nowrap;{cur}">{col}{arrow}</th>')
 
     scroll_y = f"overflow-y:auto;max-height:{height}px;" if len(df) > max_rows else "overflow-y:auto;"
-    st.markdown(f'''
-    <div style="background:#071428;border:1px solid rgba(26,90,180,0.3);border-radius:14px;overflow:hidden;margin-top:8px;">
+    caption = ""
+    if _tf > max_rows or _tc > max_cols:
+        caption = (f'<div style="padding:6px 14px;font-size:11px;color:#64748b;">'
+                   f'Mostrando {min(max_rows,_tf)} de {_tf} filas y {min(max_cols,_tc)} de {_tc} columnas '
+                   f'(vista optimizada).</div>')
+
+    sort_js = """
+    <script>
+    let sortDir = {};
+    function sortTbl(colIdx) {
+        const table = document.getElementById('tbl');
+        const tbody = table.querySelector('tbody');
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        sortDir[colIdx] = !sortDir[colIdx];
+        const asc = sortDir[colIdx];
+        rows.sort((a, b) => {
+            const ca = a.children[colIdx], cb = b.children[colIdx];
+            const isNum = ca.dataset.num === "1" && cb.dataset.num === "1";
+            let va = ca.dataset.sort, vb = cb.dataset.sort;
+            if (isNum) { va = parseFloat(va); vb = parseFloat(vb); return asc ? va-vb : vb-va; }
+            return asc ? va.localeCompare(vb) : vb.localeCompare(va);
+        });
+        rows.forEach(r => tbody.appendChild(r));
+        table.querySelectorAll('th .sort-arrow').forEach(s => s.textContent = '⇅');
+        const arrow = table.querySelectorAll('th')[colIdx].querySelector('.sort-arrow');
+        if (arrow) arrow.textContent = asc ? '▲' : '▼';
+    }
+    </script>""" if sortable else ""
+
+    html_doc = f'''
+    <html><head><style>
+        body {{ margin:0; background:transparent; font-family:'Inter',-apple-system,sans-serif; }}
+        table {{ width:max-content; min-width:100%; border-collapse:collapse; }}
+        tr:hover td {{ filter:brightness(1.12); }}
+        th:hover {{ background:rgba(26,90,180,0.4) !important; }}
+    </style></head><body>
+    <div style="background:#071428;border:1px solid rgba(26,90,180,0.3);border-radius:14px;overflow:hidden;">
         <div style="{scroll_y}overflow-x:auto;width:100%;">
-        <table style="width:max-content;min-width:100%;border-collapse:collapse;">
+        <table id="tbl">
             <thead><tr style="position:sticky;top:0;z-index:2;">{headers}</tr></thead>
             <tbody>{rows_html}</tbody>
         </table>
         </div>
-    </div>''', unsafe_allow_html=True)
-    if _tf > max_rows or _tc > max_cols:
-        st.caption(f"Mostrando {min(max_rows,_tf)} de {_tf} filas y {min(max_cols,_tc)} de {_tc} columnas (vista optimizada).")
+        {caption}
+    </div>
+    {sort_js}
+    </body></html>'''
+    components.html(html_doc, height=height+70+(24 if caption else 0), scrolling=True)
 
 def filtro_anio_widget(df, key):
-    """Filtro multiselect de año. Retorna df filtrado."""
+    """Filtro multiselect de año. Retorna df filtrado. Default: año más reciente."""
     if "AÑO" not in df.columns: return df, []
     anios = sorted([int(a) for a in df["AÑO"].dropna().unique() if int(a) > 1900], reverse=True)
+    if not anios: return df, []
     sel = st.multiselect("📅 Año(s)", [str(a) for a in anios],
-                         default=[], key=f"anio_{key}",
+                         default=[str(anios[0])], key=f"anio_{key}",
                          placeholder="Todos los años")
     if sel:
         sel_int = [int(s) for s in sel]
@@ -830,40 +881,52 @@ def grafico_con_scroll(fig, height=380, max_items=15):
 def pagina_estadisticas_medicas():
     st.markdown('<div class="sec-title">🏥 Estadísticas Médicas</div>',unsafe_allow_html=True)
     df=cargar_sheet("lesiones")
-    _pdf_hoja("Estadisticas Medicas",df,"Registro de lesiones y enfermedades",key="em",
-              notas="Registro medico del plantel. Fuente: Google Sheets - hoja Lesiones.")
     if df.empty: no_data("Estadísticas Médicas"); return
 
-    jcol=jug_col_find(df)
+    ml=_mapear_lesiones(df)
+    jcol=ml.get("jugador") or jug_col_find(df)
     pos_col=pos_col_find(df)
-    tipo_col=next((c for c in df.columns if c.upper() in ["TIPO","ID_REGISTRO","TYPE"]),None)
-    dxt_col=next((c for c in df.columns if "day_off" in c.lower() or ("dias" in c.lower() and "baja" in c.lower())),None) or next((c for c in df.columns if "day" in c.lower() and "off" in c.lower()),None)
+    tipo_col=ml.get("tipo")
+    id_tipo_col=ml.get("id_tipo")
+    micro_col=ml.get("micro")
+    fecha_col=ml.get("fecha")
+    dxt_col=ml.get("dxt")
     est_col=next((c for c in df.columns if any(x in c.upper() for x in ["CLASIF","EST_M","ESTRUCTURA","MUSCULAR"])),None)
-    region_col=next((c for c in df.columns if any(x in c.lower() for x in ["region","zona","localiz","body","parte"])),None)
-    lesion_tipo_col=next((c for c in df.columns if any(x in c.lower() for x in ["lesion","desgarro","tipo_les","tipo les"])),None)
+    region_col=ml.get("region")
+    lesion_tipo_col=ml.get("lesion")
     obs_col="OBSERVACIONES" if "OBSERVACIONES" in df.columns else None
 
-    # Filtros — réplica Power BI
+    # Filtros: JUGADOR, MICRO, FECHA, TIPO, ID_TIPO
     st.markdown('<div class="filter-bar">',unsafe_allow_html=True)
     fc=st.columns(5)
-    jugs=["Todas"]+sorted(df[jcol].dropna().astype(str).unique().tolist())
-    poss=["Todas"]+(sorted(df[pos_col].dropna().astype(str).unique().tolist()) if pos_col else [])
-    tipos=["Todas"]+(sorted(df[tipo_col].dropna().astype(str).unique().tolist()) if tipo_col else [])
-    anios_med=sorted([str(int(a)) for a in df["AÑO"].dropna().unique() if int(a)>1900],reverse=True) if "AÑO" in df.columns else []
-    obs_vals=["Todas"]+(sorted(df[obs_col].dropna().astype(str).unique().tolist()) if obs_col else [])
-    with fc[0]: jsel=st.selectbox("JUG",jugs,key="med_jug")
-    with fc[1]: psel=st.selectbox("POS",poss,key="med_pos")
-    with fc[2]: tsel=st.selectbox("TIPO",tipos,key="med_tipo")
-    with fc[3]: asel=st.multiselect("📅 Año(s)",anios_med,default=[],key="med_anio",placeholder="Todos")
-    with fc[4]: osel=st.selectbox("OBS",obs_vals,key="med_obs")
+    jugs=["Todos"]+(sorted(df[jcol].dropna().astype(str).unique().tolist()) if jcol else [])
+    micros=["Todos"]+(_sort_micro([m for m in df[micro_col].dropna().astype(str).unique() if m and m!="nan"]) if micro_col else [])
+    tipos=["Todos"]+(sorted(df[tipo_col].dropna().astype(str).unique().tolist()) if tipo_col else [])
+    id_tipos=["Todos"]+(sorted(df[id_tipo_col].dropna().astype(str).unique().tolist()) if id_tipo_col else [])
+    with fc[0]: jsel=st.selectbox("JUGADOR",jugs,key="med_jug")
+    with fc[1]: msel=st.selectbox("MICRO",micros,key="med_micro")
+    with fc[2]:
+        if fecha_col:
+            fv=pd.to_datetime(df[fecha_col],dayfirst=True,errors="coerce").dropna()
+            if not fv.empty:
+                fmin,fmax=fv.min().date(),fv.max().date()
+                rango=st.date_input("FECHA",value=(fmin,fmax),min_value=fmin,max_value=fmax,key="med_fecha")
+            else: rango=None
+        else: rango=None
+    with fc[3]: tsel=st.selectbox("TIPO",tipos,key="med_tipo")
+    with fc[4]: itsel=st.selectbox("ID_TIPO",id_tipos,key="med_id_tipo")
     st.markdown('</div>',unsafe_allow_html=True)
 
     dff=df.copy()
-    if jsel!="Todas": dff=dff[dff[jcol].astype(str)==jsel]
-    if psel!="Todas" and pos_col: dff=dff[dff[pos_col].astype(str)==psel]
-    if tsel!="Todas" and tipo_col: dff=dff[dff[tipo_col].astype(str)==tsel]
-    if asel and "AÑO" in dff.columns: dff=dff[dff["AÑO"].isin([int(a) for a in asel])]
-    if osel!="Todas" and obs_col: dff=dff[dff[obs_col].astype(str)==osel]
+    if jsel!="Todos" and jcol: dff=dff[dff[jcol].astype(str)==jsel]
+    if msel!="Todos" and micro_col: dff=dff[dff[micro_col].astype(str)==msel]
+    if fecha_col and isinstance(rango,(list,tuple)) and len(rango)==2:
+        _fd=pd.to_datetime(dff[fecha_col],dayfirst=True,errors="coerce")
+        ini,fin=pd.Timestamp(rango[0]),pd.Timestamp(rango[1])+pd.Timedelta(days=1)
+        dff=dff[_fd.isna()|((_fd>=ini)&(_fd<fin))]
+    if tsel!="Todos" and tipo_col: dff=dff[dff[tipo_col].astype(str)==tsel]
+    if itsel!="Todos" and id_tipo_col: dff=dff[dff[id_tipo_col].astype(str)==itsel]
+    osel="Todas"
     les_df=dff[dff[tipo_col].astype(str).str.upper()=="LESION"].copy() if tipo_col else dff.copy()
 
     # ── Fila 1: tabla incidencias (col izq) + días x año + tipo lesión (col der) ──
@@ -1018,7 +1081,7 @@ def pagina_estadisticas_medicas():
             st.markdown('</div>', unsafe_allow_html=True)
 
     # ── Figura humana — solo cuando hay jugador seleccionado ──
-    if jsel != "Todas" and region_col:
+    if jsel != "Todos" and region_col:
         st.markdown("---")
         st.markdown('<div class="subsec">🫀 Mapa corporal — lesiones de '  + jsel + '</div>',unsafe_allow_html=True)
         df_jug_les = dff[dff[jcol].astype(str) == jsel]
@@ -1026,15 +1089,53 @@ def pagina_estadisticas_medicas():
 
     st.markdown("---")
     st.markdown('<div class="subsec">Registros completos</div>',unsafe_allow_html=True)
-    show_dff = dff[[c for c in dff.columns if not c.startswith("_")]].copy()
-    hl_cols = [dxt_col] if dxt_col and dxt_col in show_dff.columns else []
-    if dxt_col and dxt_col in show_dff.columns:
-        show_dff[dxt_col] = to_num_col(show_dff[dxt_col])
-    html_table(show_dff, highlight_cols=hl_cols)
+    dff_sort=dff.copy()
+    if fecha_col:
+        dff_sort["_fs"]=pd.to_datetime(dff_sort[fecha_col],dayfirst=True,errors="coerce")
+        dff_sort=dff_sort.sort_values("_fs",ascending=False,na_position="last")
+    tabla_reg=_tabla_lesion(dff_sort,ml)
+    html_table(tabla_reg, highlight_cols=["DAY_OFF_RTT"], max_rows=25, height=460)
+    pdf_btn("Estadisticas Medicas",
+            kpis=[("Registros",len(tabla_reg)),("Jugador",jsel),("Micro",msel),("Tipo",tsel)],
+            tablas=[("Registros de lesiones",tabla_reg,"DAY_OFF_RTT")],
+            orientacion="L",key="em",
+            notas="Fuente: Google Sheets - hoja Lesiones. Filtros: JUGADOR, MICRO, FECHA, TIPO, ID_TIPO.")
 
 # ══════════════════════════════════════════════════════════════
 # EVALUACIONES FÍSICAS
 # ══════════════════════════════════════════════════════════════
+def _mapear_lesiones(df):
+    """Mapea las columnas reales de la hoja Lesiones a las claves que usa la app."""
+    def _exact(cands):
+        for c in df.columns:
+            if c.strip().upper() in cands: return c
+        return None
+    return {
+        "fecha": _exact(["FECHA"]),
+        "micro": _exact(["MICRO","MICROCICLO"]),
+        "id_registro": _exact(["ID_REGISTRO"]),
+        "jugador": _exact(["JUGADOR","JUG"]),
+        "tipo": _exact(["TIPO"]),
+        "id_tipo": _exact(["ID_TIPO"]),
+        "lesion": _exact(["LESION","LESIÓN"]),
+        "region": _exact(["REGION","REGIÓN"]),
+        "muscl_id": _exact(["MUSCL_ID"]),
+        "dxt": _exact(["DAY_OFF_RTT","DAY_OFF_DXT"]),
+    }
+
+_COLS_LESION=[("fecha","FECHA"),("micro","MICRO"),("id_registro","ID_REGISTRO"),
+              ("jugador","JUGADOR"),("tipo","TIPO"),("id_tipo","ID_TIPO"),
+              ("lesion","LESION"),("region","REGION"),("muscl_id","MUSCL_ID"),
+              ("dxt","DAY_OFF_RTT")]
+
+def _tabla_lesion(df,ml):
+    """Tabla curada de lesiones con exactamente las columnas pedidas, en ese orden."""
+    out=pd.DataFrame(index=df.index)
+    for key,lab in _COLS_LESION:
+        c=ml.get(key)
+        out[lab]=df[c].astype(str).replace("nan","—") if c and c in df.columns else "—"
+    return out.reset_index(drop=True)
+
 def _col_resaltar(df, candidatos):
     """Devuelve el primer nombre de columna real de `df` que matchee alguno
     de los candidatos (para no hardcodear el nombre exacto de la hoja)."""
@@ -1544,12 +1645,22 @@ def pagina_control_partidos():
     if dp.empty:
         st.info("No se identificaron sesiones de partido en GPS_LONG (revisá la columna SES o RIVAL)."); return
 
+    # ── Parseo de fecha para poder ordenar / defaultear al último partido ──
+    if fecha_col:
+        dp["_fdt"]=pd.to_datetime(dp[fecha_col],dayfirst=True,errors="coerce")
+    else:
+        dp["_fdt"]=pd.NaT
+    ultimo_rival=None
+    if fecha_col and rival_col and dp["_fdt"].notna().any():
+        ultimo_rival=dp.loc[dp["_fdt"].idxmax(),rival_col]
+
     # ── Filtros ──────────────────────────────────────────────────
     st.markdown('<div class="filter-bar">',unsafe_allow_html=True)
     fc1,fc2,fc3,fc4=st.columns(4)
     with fc1:
         riv_opts=sorted([r for r in dp[rival_col].dropna().astype(str).unique() if r and r!="nan"]) if rival_col else []
-        riv_sel=st.multiselect("Rival",riv_opts,default=[],key="cp_rival")
+        riv_default=[str(ultimo_rival)] if ultimo_rival and str(ultimo_rival) in riv_opts else []
+        riv_sel=st.multiselect("Rival",riv_opts,default=riv_default,key="cp_rival")
     with fc2:
         pos_opts=sorted([p for p in dp[pos_col].dropna().astype(str).unique() if p and p!="nan"]) if pos_col else []
         pos_sel=st.multiselect("Posición",pos_opts,default=[],key="cp_pos")
@@ -1560,6 +1671,9 @@ def pagina_control_partidos():
         jug_opts=sorted([j for j in dp[jcol].dropna().astype(str).unique() if j and j!="nan"])
         jug_sel=st.selectbox("Jugador",["Todos"]+jug_opts,key="cp_jug")
     st.markdown('</div>',unsafe_allow_html=True)
+    if riv_default:
+        st.caption(f"📌 Filtro por defecto: último partido registrado — vs. {riv_default[0]}. "
+                   "Quitalo del filtro Rival para ver todo el histórico.")
 
     dff=dp.copy()
     if riv_sel and rival_col: dff=dff[dff[rival_col].astype(str).isin(riv_sel)]
@@ -1595,10 +1709,11 @@ def pagina_control_partidos():
     st.markdown(_fila(tarjetas1),unsafe_allow_html=True)
 
     # ═══════════════════════════════════════════════════════════════
-    #  LÍNEA 2 — Sumatoria total / promedio por partido
+    #  LÍNEA 2 — Mejor partido / promedio por partido (sin MIN)
     # ═══════════════════════════════════════════════════════════════
-    st.markdown('<div class="subsec">🏆 Totales del equipo</div>',unsafe_allow_html=True)
-    st.caption("Excluye arqueros · arriba: sumatoria total del período · abajo: promedio por partido")
+    st.markdown('<div class="subsec">🏆 Totales del equipo por partido</div>',unsafe_allow_html=True)
+    st.caption("Excluye arqueros · arriba: el MEJOR partido del equipo en esa variable (no la suma del período) · "
+               "abajo: promedio por partido")
     dff_eq=dff.copy()
     if pos_col:
         dff_eq=dff_eq[~dff_eq[pos_col].astype(str).str.upper().str.contains("ARQ|GK|PORTER",na=False)]
@@ -1608,28 +1723,29 @@ def pagina_control_partidos():
         dff_eq["_pid"]=dff_eq[fecha_col].astype(str)
     else:
         dff_eq["_pid"]="unico"
+    _vars_cp2=[v for v in _vars_cp if v[0]!="min"]  # sin MIN en esta línea
     tarjetas2=[]
-    for k,lab in _vars_cp:
+    for k,lab in _vars_cp2:
         col=cg.get(k)
         if col and col in dff_eq.columns:
             serie=to_num_col(dff_eq[col])
             tmp=dff_eq.assign(_v=serie).dropna(subset=["_v"])
             if k=="vmax":
                 por_partido=tmp.groupby("_pid")["_v"].max()
-                total=por_partido.max() if len(por_partido)>0 else None
             else:
                 por_partido=tmp.groupby("_pid")["_v"].sum()
-                total=por_partido.sum() if len(por_partido)>0 else None
+            mejor=por_partido.max() if len(por_partido)>0 else None
             prom=por_partido.mean() if len(por_partido)>0 else None
         else:
-            total=prom=None
-        tarjetas2.append(_tarjeta_maxprom(lab,total,prom))
+            mejor=prom=None
+        tarjetas2.append(_tarjeta_maxprom(lab,mejor,prom))
     st.markdown(_fila(tarjetas2),unsafe_allow_html=True)
 
     # ═══════════════════════════════════════════════════════════════
     #  TABLA DE REGISTROS
     # ═══════════════════════════════════════════════════════════════
     st.markdown('<div class="subsec">📋 Registros</div>',unsafe_allow_html=True)
+    dff=dff.sort_values("_fdt",ascending=False,na_position="last")
     tabla=pd.DataFrame()
     tabla["JUGADOR"]=dff[jcol].astype(str)
     if rival_col: tabla["RIVAL"]=dff[rival_col].astype(str)
@@ -1729,6 +1845,7 @@ def pagina_resumen():
     # ═══════════════════════════════════════════════════════════════
     if "GPS" in secs:
         st.markdown('<div class="subsec">📡 GPS</div>',unsafe_allow_html=True)
+        st.caption("Incluye todas las sesiones registradas (entrenamientos + partidos), no solo partidos.")
         gps_full=cargar_sheet("gps")
         if gps_full is None or gps_full.empty:
             st.info(f"Sin datos de GPS para {jsel}.")
@@ -1785,8 +1902,24 @@ def pagina_resumen():
                             if c!="Microciclo": tabla_micro[c]=tabla_micro[c].round(1)
                         html_table(tabla_micro,highlight_cols=["DIST TOT"],max_rows=10,height=380)
                         tablas_pdf.append(("GPS - carga por microciclo (ult. 10)",tabla_micro,"DIST TOT"))
-                    tablas_pdf.append(("GPS - últimos registros",
-                                       dg[[c for c in dg.columns if not c.startswith("_")]].tail(15)))
+
+                    # ── Tabla PDF: últimos registros, CURADA (antes se mandaban las
+                    #    columnas crudas de la hoja -> el PDF corta a 9 columnas y
+                    #    quedaban afuera las métricas, mostrando solo TEMP/SEMANA/MICRO) ──
+                    dg_pdf=pd.DataFrame()
+                    if fecha_col:=cg.get("fecha"):
+                        dg["_fpdf"]=pd.to_datetime(dg[fecha_col],dayfirst=True,errors="coerce")
+                        dg_sorted=dg.sort_values("_fpdf",ascending=False)
+                        dg_pdf["FECHA"]=dg_sorted[fecha_col].astype(str)
+                    else:
+                        dg_sorted=dg
+                    if cg.get("pos"): dg_pdf["POS"]=dg_sorted[cg["pos"]].astype(str)
+                    for k,lab in [("min","MIN")]+_vars_tabla:
+                        col=cg.get(k)
+                        if col and col in dg_sorted.columns:
+                            dg_pdf[lab]=to_num_col(dg_sorted[col]).round(1)
+                    dg_pdf=dg_pdf.head(15).reset_index(drop=True)
+                    tablas_pdf.append(("GPS - últimos registros",dg_pdf,"DIST TOT"))
 
     # ═══════════════════════════════════════════════════════════════
     #  CMJ
@@ -1918,11 +2051,16 @@ def pagina_resumen():
         st.markdown('<div class="subsec">🏥 Historial médico</div>',unsafe_allow_html=True)
         les=cargar_sheet("lesiones")
         if les is not None and not les.empty:
-            jc=jug_col_find(les)
+            ml_r=_mapear_lesiones(les)
+            jc=ml_r.get("jugador") or jug_col_find(les)
             dl=les[les[jc].astype(str).str.lower()==jsel.lower()] if jc else les.iloc[0:0]
             if not dl.empty:
-                st.dataframe(dl,use_container_width=True,hide_index=True)
-                tablas_pdf.append(("Historial médico", dl[[c for c in dl.columns if not c.startswith("_")]],None))
+                if ml_r.get("fecha"):
+                    dl=dl.assign(_fl=pd.to_datetime(dl[ml_r["fecha"]],dayfirst=True,errors="coerce")) \
+                         .sort_values("_fl",ascending=False)
+                tabla_les=_tabla_lesion(dl,ml_r)
+                html_table(tabla_les,highlight_cols=["DAY_OFF_RTT"],max_rows=15,height=340)
+                tablas_pdf.append(("Historial médico",tabla_les,"DAY_OFF_RTT"))
             else:
                 st.info(f"Sin registros médicos para {jsel}.")
         else:
