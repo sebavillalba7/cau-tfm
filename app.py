@@ -32,7 +32,21 @@ st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800;900&display=swap');
 .stApp{background:linear-gradient(135deg,#0c1e3e 0%,#112347 50%,#0c1e3e 100%);color:#e8ecf4;font-family:'Inter',sans-serif;}
-header[data-testid="stHeader"]{display:none!important;}
+header[data-testid="stHeader"]{background:transparent!important;box-shadow:none!important;height:auto!important;}
+#MainMenu{visibility:hidden!important;}
+[data-testid="stToolbar"]{visibility:hidden!important;}
+[data-testid="stDecoration"]{display:none!important;}
+/* Flecha para abrir/cerrar el sidebar: distintas versiones de Streamlit usan
+   distintos data-testid para este control. La ocultábamos sin querer al
+   esconder el header entero -> forzamos que quede SIEMPRE visible y blanca. */
+[data-testid="collapsedControl"],[data-testid="stSidebarCollapsedControl"],
+button[kind="header"],[data-testid="baseButton-headerNoPadding"]{
+    visibility:visible!important;display:flex!important;opacity:1!important;z-index:999999!important;
+}
+[data-testid="collapsedControl"] svg,[data-testid="stSidebarCollapsedControl"] svg,
+button[kind="header"] svg,[data-testid="baseButton-headerNoPadding"] svg{
+    fill:#ffffff!important;color:#ffffff!important;
+}
 section[data-testid="stSidebar"]{background:linear-gradient(180deg,#091528 0%,#0d1e38 100%)!important;border-right:1px solid rgba(200,16,46,0.3)!important;}
 section[data-testid="stSidebar"] *{color:#e8ecf4!important;}
 section[data-testid="stSidebar"] .stButton>button{background:rgba(255,255,255,0.04)!important;color:#e8ecf4!important;border:1px solid rgba(255,255,255,0.07)!important;border-radius:10px!important;font-weight:500!important;text-align:left!important;padding-left:14px!important;transition:all .2s!important;}
@@ -265,20 +279,41 @@ def html_table(df, highlight_cols=None, num_format=None, max_rows=15, height=420
         except: return ""
 
     rows_html = ""
+    _date_re = __import__("re").compile(r"^(\d{1,2})/(\d{1,2})/(\d{4})$")
     for _, row in df.iterrows():
         cells = ""
         for col in df.columns:
             val = row[col]
             fmt = num_format.get(col, "")
             is_num = False
-            try:
-                fval = float(str(val).replace(",","."))
-                display = f"{fval:{fmt}}" if fmt else (f"{fval:.1f}" if fval != int(fval) else f"{int(fval)}")
-                sortval = fval
+            if isinstance(val, (pd.Timestamp, date, datetime)) and pd.notna(val):
+                # Fecha real: mostrar dd/mm/aaaa pero ordenar por el timestamp
+                # real, no por el texto (si no, "22/07" ordena antes que
+                # "25/06" porque "2">"2" y "2"<"5" en texto, aunque
+                # cronológicamente julio es después que junio).
+                ts = pd.Timestamp(val)
+                display = ts.strftime("%d/%m/%Y")
+                sortval = ts.timestamp()
                 is_num = True
-            except:
-                display = str(val) if str(val) not in ["nan","None","<NA>"] else "—"
-                sortval = display.lower()
+            else:
+                try:
+                    fval = float(str(val).replace(",","."))
+                    display = f"{fval:{fmt}}" if fmt else (f"{fval:.1f}" if fval != int(fval) else f"{int(fval)}")
+                    sortval = fval
+                    is_num = True
+                except:
+                    display = str(val) if str(val) not in ["nan","None","<NA>"] else "—"
+                    m = _date_re.match(display)
+                    if m:
+                        # Ya viene formateada como dd/mm/aaaa (string) — igual
+                        # hay que ordenarla por fecha real, no por texto.
+                        try:
+                            sortval = pd.Timestamp(f"{m.group(3)}-{m.group(2)}-{m.group(1)}").timestamp()
+                            is_num = True
+                        except Exception:
+                            sortval = display.lower()
+                    else:
+                        sortval = display.lower()
             style = cell_color(col, val)
             base_color = "" if style else "color:#e2e8f0;"
             sv = str(sortval).replace('"',"&quot;")
@@ -474,14 +509,29 @@ def render_sidebar():
 # ══════════════════════════════════════════════════════════════
 # HOME
 # ══════════════════════════════════════════════════════════════
+def _ultima_actualizacion(key_sheet):
+    """Devuelve la fecha más reciente encontrada en la hoja, o None si no hay
+    columna de fecha reconocible / la hoja está vacía."""
+    try:
+        d = cargar_sheet(key_sheet)
+        if d is None or d.empty: return None, 0
+        fcol = next((c for c in d.columns if c.strip().upper() == "FECHA"), None)
+        if not fcol:
+            fcol = next((c for c in d.columns if "fecha" in c.lower() and not c.startswith("_")), None)
+        if not fcol: return None, len(d)
+        fechas = pd.to_datetime(d[fcol], dayfirst=True, errors="coerce").dropna()
+        if fechas.empty: return None, len(d)
+        return fechas.max(), len(d)
+    except Exception:
+        return None, 0
+
 def pagina_home():
     u=st.session_state.usuario
     try:
         _g=cargar_sheet("gps");_l=cargar_sheet("lesiones");_j=cargar_sheet("historial")
         _kp=[("Jugadores",_j[jug_col_find(_j)].nunique() if not _j.empty else "-"),
              ("Registros medicos",len(_l) if not _l.empty else "-"),
-             ("Sesiones GPS",len(_g) if not _g.empty else "-"),
-             ("Fecha",date.today().strftime("%d/%m/%Y"))]
+             ("Sesiones GPS",len(_g) if not _g.empty else "-")]
     except Exception:
         _kp=None
     pdf_btn(kpis=_kp,notas="Resumen general del plantel - Plataforma CAU Data Intelligence.")
@@ -498,15 +548,35 @@ def pagina_home():
     st.markdown('<div class="sec-title">Resumen del plantel</div>',unsafe_allow_html=True)
     try:
         gps=cargar_sheet("gps");les=cargar_sheet("lesiones");jug=cargar_sheet("historial")
-        c1,c2,c3,c4=st.columns(4)
+        c1,c2,c3=st.columns(3)
         c1.metric("👥 Jugadores",jug[jug_col_find(jug)].nunique() if not jug.empty else "—")
         c2.metric("🏥 Registros médicos",len(les) if not les.empty else "—")
         c3.metric("📡 Sesiones GPS",len(gps) if not gps.empty else "—")
-        c4.metric("📅 Hoy",date.today().strftime("%d/%m/%Y"))
     except:
-        c1,c2,c3,c4=st.columns(4)
-        for c,l in zip([c1,c2,c3,c4],["👥 Jugadores","🏥 Médicos","📡 GPS","📅 Hoy"]): c.metric(l,"—")
+        c1,c2,c3=st.columns(3)
+        for c,l in zip([c1,c2,c3],["👥 Jugadores","🏥 Médicos","📡 GPS"]): c.metric(l,"—")
     st.markdown(f'<div style="background:rgba(200,16,46,.07);border:1px solid rgba(200,16,46,.2);border-radius:14px;padding:18px 24px;margin-top:16px;"><div style="font-size:10px;color:#c8102e;font-weight:700;letter-spacing:2px;text-transform:uppercase;">Sesión activa</div><div style="font-size:20px;font-weight:800;color:#fff;margin:4px 0 4px;">{u["nombre"]} · {u["rol"]}</div><div style="font-size:13px;color:#94a3b8;">Área: <b style="color:#e2e8f0;">{u["area"]}</b> | Acceso a <b style="color:#e2e8f0;">{len(AREAS[u["area"]]["secciones"])}</b> secciones</div></div>',unsafe_allow_html=True)
+
+    # ── Fuentes de datos y última actualización ─────────────────────
+    st.markdown("---")
+    st.markdown('<div class="sec-title">🗂️ Fuentes de datos</div>',unsafe_allow_html=True)
+    _fuentes=[("GPS_LONG","gps"),("CMJ 2PP","cmj"),("CMJ 1PP","cmj1pp"),("Curl Nórdico","nordico"),
+              ("VBT","vbt"),("Lesiones","lesiones"),("Historial de jugadores","historial"),
+              ("Control Nutricional","nutricion")]
+    filas_fte=""
+    for label,key_sh in _fuentes:
+        ult,nreg=_ultima_actualizacion(key_sh)
+        ult_s=ult.strftime("%d/%m/%Y") if ult is not None else "—"
+        estado="🟢" if nreg>0 else "⚪"
+        filas_fte+=(f'<div style="display:flex;justify-content:space-between;align-items:center;'
+                    f'padding:10px 16px;border-bottom:1px solid rgba(255,255,255,0.06);">'
+                    f'<div style="color:#e2e8f0;font-size:13px;">{estado} {label}</div>'
+                    f'<div style="color:#94a3b8;font-size:12px;">{nreg} reg. · '
+                    f'Últ. actualización: <b style="color:#93c5fd;">{ult_s}</b></div></div>')
+    st.markdown(f'<div style="background:#071428;border:1px solid rgba(26,90,180,0.3);border-radius:14px;'
+                f'overflow:hidden;">{filas_fte}</div>',unsafe_allow_html=True)
+    st.caption("La fecha de actualización se calcula como la fecha más reciente registrada en cada hoja de "
+               "Google Sheets (columna FECHA), no la fecha en que se abrió esta página.")
 
 # ══════════════════════════════════════════════════════════════
 # HISTORIAL JUGADORES
@@ -928,13 +998,15 @@ def pagina_estadisticas_medicas():
     if anio_sel_m and anio_col_m:
         df_anio=df_anio[df_anio[anio_col_m].isin([int(a) for a in anio_sel_m])]
 
-    # Filtros: JUGADOR, MICRO, FECHA (Desde/Hasta), TIPO, ID_TIPO (sobre el subset ya filtrado por año)
+    # Filtros: JUGADOR, MICRO, FECHA (Desde/Hasta), TIPO, ID_TIPO, ID_REGISTRO
+    id_registro_col=ml.get("id_registro")
     st.markdown('<div class="filter-bar">',unsafe_allow_html=True)
-    fc=st.columns(6)
+    fc=st.columns(7)
     jugs=["Todos"]+(sorted(df_anio[jcol].dropna().astype(str).unique().tolist()) if jcol else [])
     micros=["Todos"]+(_sort_micro([m for m in df_anio[micro_col].dropna().astype(str).unique() if m and m!="nan"]) if micro_col else [])
     tipos=["Todos"]+(sorted(df_anio[tipo_col].dropna().astype(str).unique().tolist()) if tipo_col else [])
     id_tipos=["Todos"]+(sorted(df_anio[id_tipo_col].dropna().astype(str).unique().tolist()) if id_tipo_col else [])
+    id_regs=["Todos"]+(sorted(df_anio[id_registro_col].dropna().astype(str).unique().tolist()) if id_registro_col else [])
     with fc[0]: jsel=st.selectbox("JUGADOR",jugs,key="med_jug")
     with fc[1]: msel=st.selectbox("MICRO",micros,key="med_micro")
     rango=None
@@ -949,6 +1021,8 @@ def pagina_estadisticas_medicas():
             rango=(f_desde,f_hasta)
     with fc[4]: tsel=st.selectbox("TIPO",tipos,key="med_tipo")
     with fc[5]: itsel=st.selectbox("ID_TIPO",id_tipos,key="med_id_tipo")
+    with fc[6]: irsel=st.selectbox("ID_REGISTRO",id_regs,key="med_id_registro",
+                                   help="LESION vs ENFERMEDAD (u otros tipos de registro que uses).")
     st.markdown('</div>',unsafe_allow_html=True)
 
     dff=df_anio.copy()
@@ -960,7 +1034,7 @@ def pagina_estadisticas_medicas():
         dff=dff[(_fd>=ini)&(_fd<fin)]
     if tsel!="Todos" and tipo_col: dff=dff[dff[tipo_col].astype(str)==tsel]
     if itsel!="Todos" and id_tipo_col: dff=dff[dff[id_tipo_col].astype(str)==itsel]
-    id_registro_col=ml.get("id_registro")
+    if irsel!="Todos" and id_registro_col: dff=dff[dff[id_registro_col].astype(str)==irsel]
     osel="Todas"
     # LESION vs ENFERMEDAD vive en ID_REGISTRO (no en TIPO, que es la
     # clasificación de la lesión en sí). Antes esto filtraba por tipo_col,
@@ -1000,34 +1074,35 @@ def pagina_estadisticas_medicas():
             plotly_dark(fig,180)
             st.plotly_chart(fig,use_container_width=True)
 
-        # Días perdidos x tipo lesión (donut) — lado a lado con clasificación
+        # Días perdidos x tipo de lesión (donut) — agrupado por ID_TIPO
+        # (desgarro/contractura/ruptura/etc), no por la columna LESION.
+        # Antes agrupaba por LESION y metía todo lo que sobraba del top 5 en
+        # un cajón "Otros" sin explicar qué era — eso generaba confusión.
+        # ID_TIPO tiene pocas categorías clínicas reales, así que se
+        # muestran TODAS, sin bucket de "Otros".
         g1, g2 = st.columns(2)
         with g1:
-            if lesion_tipo_col and dxt_col:
-                st.markdown('<div class="subsec">Días perdidos x lesión</div>',unsafe_allow_html=True)
+            if id_tipo_col and dxt_col:
+                st.markdown('<div class="subsec">Días perdidos x tipo (ID_TIPO)</div>',unsafe_allow_html=True)
                 les_df["_dxt"]=to_num_col(les_df[dxt_col])
-                por_tipo=les_df.groupby(lesion_tipo_col)["_dxt"].sum().reset_index().sort_values("_dxt",ascending=False)
+                por_tipo=les_df.groupby(id_tipo_col)["_dxt"].sum().reset_index().sort_values("_dxt",ascending=False)
+                por_tipo=por_tipo[por_tipo["_dxt"]>0]
                 total=por_tipo["_dxt"].sum()
-                top5=por_tipo.head(5).copy()
-                otros_sum=por_tipo.iloc[5:]["_dxt"].sum() if len(por_tipo)>5 else 0
-                if otros_sum>0:
-                    top5=pd.concat([top5,pd.DataFrame([{lesion_tipo_col:"Otros","_dxt":otros_sum}])],ignore_index=True)
-                # Labels con valor y %
-                top5["label"]=top5[lesion_tipo_col].astype(str).str[:20]
-                top5["pct_str"]=(top5["_dxt"]/total*100).round(2).astype(str)+"%"
-                COLORES_TIPO=["#4299e1","#805ad5","#ed8936","#48bb78","#f56565","#718096"]
+                por_tipo["label"]=por_tipo[id_tipo_col].astype(str).str[:24]
+                por_tipo["pct_str"]=(por_tipo["_dxt"]/total*100).round(2).astype(str)+"%" if total>0 else "0%"
+                COLORES_TIPO=["#4299e1","#805ad5","#ed8936","#48bb78","#f56565","#38bdf8","#facc15","#f472b6","#a3e635","#718096"]
                 fig2=go.Figure(go.Pie(
-                    labels=top5["label"],
-                    values=top5["_dxt"],
+                    labels=por_tipo["label"],
+                    values=por_tipo["_dxt"],
                     hole=0.55,
-                    marker_colors=COLORES_TIPO[:len(top5)],
+                    marker_colors=(COLORES_TIPO*((len(por_tipo)//len(COLORES_TIPO))+1))[:len(por_tipo)],
                     texttemplate="%{value:.0f}<br>(%{percent:.2%})",
                     textposition="outside",
                     textfont_size=10,
                     hovertemplate="<b>%{label}</b><br>Días: %{value:.0f}<extra></extra>"
                 ))
                 fig2.update_layout(
-                    title=dict(text="DÍAS PERDIDOS x LESIÓN",font_size=11,font_color="#94a3b8",x=0.5),
+                    title=dict(text="DÍAS PERDIDOS x ID_TIPO",font_size=11,font_color="#94a3b8",x=0.5),
                     legend=dict(orientation="v",x=1.0,y=0.5,font_size=9,bgcolor="rgba(0,0,0,0)"),
                     template="plotly_dark",showlegend=True
                 )
