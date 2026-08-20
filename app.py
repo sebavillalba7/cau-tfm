@@ -1667,20 +1667,37 @@ def pagina_control_partidos():
     min_col=cg.get("min")
     jcol=cg["jugador"]
 
-    # ── Día de partido: preferimos DIA=="MD" (día exacto del partido). Antes
-    # se usaba RIVAL no-nulo como señal, pero el RIVAL suele quedar cargado en
-    # TODA la semana (MD-2, MD-1, MD, MD+1, MD+2), no solo el día del juego —
-    # eso inflaba las tarjetas de "mejor partido" sumando la semana entera. ──
-    mask=pd.Series(False,index=gps.index)
+    # ── Día de partido — AND estricto de las 3 señales pedidas:
+    #    DIA=="MD"  Y  SES=="PARTIDO"  Y  RIVAL válido (≠ NA/vacío).
+    #    Antes usaba un OR (bastaba con una señal), lo que dejaba pasar días
+    #    de la semana de partido que no eran el partido en sí, inflando la
+    #    "sumatoria del mejor partido". ──
+    conds=[]
     if dia_col:
-        mask = mask | (gps[dia_col].astype(str).str.strip().str.upper()=="MD")
-    elif ses_col:
-        mask = mask | dfx.es_partido(gps[ses_col])
-    elif rival_col:
-        mask = mask | gps[rival_col].astype(str).str.strip().replace("nan","").ne("")
+        conds.append(gps[dia_col].astype(str).str.strip().str.upper()=="MD")
+    if ses_col:
+        conds.append(gps[ses_col].astype(str).str.strip().str.upper()=="PARTIDO")
+    if rival_col:
+        _riv_up=gps[rival_col].astype(str).str.strip().str.upper()
+        conds.append(~_riv_up.isin(["","NAN","NA","N/A","NONE","—","-"]))
+    if conds:
+        mask=conds[0]
+        for c in conds[1:]: mask=mask & c
+    else:
+        mask=pd.Series(False,index=gps.index)
     dp=gps[mask].copy()
     if dp.empty:
-        st.info("No se identificaron sesiones de partido en GPS_LONG (revisá la columna DIA, debería tener el valor 'MD' en el día del partido)."); return
+        st.info("No se identificaron sesiones de partido en GPS_LONG con DIA=\"MD\" + SES=\"PARTIDO\" + RIVAL válido. "
+                "Revisá que esos 3 campos existan y usen exactamente esos valores en tu hoja."); return
+
+    # ── Dedup defensivo: si el mismo jugador tiene 2 filas para la misma
+    # fecha (carga duplicada en la planilla), eso también infla la suma. ──
+    if fecha_col:
+        dp["_fdt_dd"]=pd.to_datetime(dp[fecha_col],dayfirst=True,errors="coerce")
+        _antes=len(dp)
+        dp=dp.drop_duplicates(subset=[jcol,"_fdt_dd"],keep="first")
+        if len(dp)<_antes:
+            st.caption(f"⚠️ Se removieron {_antes-len(dp)} filas duplicadas (mismo jugador + misma fecha) antes de calcular totales.")
 
     # ── Filtro de Año — SIEMPRE el primero, default al más reciente ──
     if "AÑO" in dp.columns:
@@ -1708,7 +1725,7 @@ def pagina_control_partidos():
 
     # ── Filtros ──────────────────────────────────────────────────
     st.markdown('<div class="filter-bar">',unsafe_allow_html=True)
-    fc1,fc2,fc3,fc4=st.columns(4)
+    fc1,fc2,fc3,fc4,fc5=st.columns(5)
     with fc1:
         riv_opts=sorted([r for r in dp[rival_col].dropna().astype(str).unique() if r and r!="nan"]) if rival_col else []
         riv_default=[str(ultimo_rival)] if ultimo_rival and str(ultimo_rival) in riv_opts else []
@@ -1722,6 +1739,11 @@ def pagina_control_partidos():
     with fc4:
         jug_opts=sorted([j for j in dp[jcol].dropna().astype(str).unique() if j and j!="nan"])
         jug_sel=st.selectbox("Jugador",["Todos"]+jug_opts,key="cp_jug")
+    with fc5:
+        fechas_partido=sorted(dp["_fdt"].dropna().dt.date.unique().tolist(),reverse=True)
+        fecha_opts=[d.strftime("%d/%m/%Y") for d in fechas_partido]
+        fecha_sel=st.multiselect("Fecha de partido",fecha_opts,default=[],key="cp_fecha",
+                                 help="Útil si jugaste dos veces contra el mismo rival — así distinguís cada partido.")
     st.markdown('</div>',unsafe_allow_html=True)
     if riv_default:
         st.caption(f"📌 Filtro por defecto: último partido registrado — vs. {riv_default[0]}. "
@@ -1732,6 +1754,7 @@ def pagina_control_partidos():
     if pos_sel and pos_col: dff=dff[dff[pos_col].astype(str).isin(pos_sel)]
     if res_sel and res_col: dff=dff[dff[res_col].astype(str).isin(res_sel)]
     if jug_sel!="Todos": dff=dff[dff[jcol].astype(str)==jug_sel]
+    if fecha_sel: dff=dff[dff["_fdt"].dt.strftime("%d/%m/%Y").isin(fecha_sel)]
     if dff.empty: st.warning("Sin registros para los filtros seleccionados."); return
 
     _vars_cp=[("min","MIN"),("td","TOT DIST"),("m19","MTS >19"),("m24","MTS >24"),
@@ -1769,8 +1792,12 @@ def pagina_control_partidos():
     dff_eq=dff.copy()
     if pos_col:
         dff_eq=dff_eq[~dff_eq[pos_col].astype(str).str.upper().str.contains("ARQ|GK|PORTER",na=False)]
-    if fecha_col and rival_col:
-        dff_eq["_pid"]=dff_eq[fecha_col].astype(str)+"|"+dff_eq[rival_col].astype(str)
+    # Clave de partido = fecha real ya parseada (_fdt), no el string crudo de la
+    # celda. Dos partidos contra el MISMO rival en fechas distintas ya quedan
+    # separados por fecha; usar fecha+rival como string podía fallar si el
+    # formato de la celda RIVAL variaba entre filas del mismo partido.
+    if "_fdt" in dff_eq.columns and dff_eq["_fdt"].notna().any():
+        dff_eq["_pid"]=dff_eq["_fdt"].dt.strftime("%Y-%m-%d")
     elif fecha_col:
         dff_eq["_pid"]=dff_eq[fecha_col].astype(str)
     else:
@@ -1832,11 +1859,12 @@ def pagina_control_partidos():
     html_table(tabla,highlight_cols=["TOT DIST","MTS >19"],max_rows=25,height=460)
     pdf_btn("Control de Partidos",
             kpis=[("Registros",len(tabla)),("Rival",", ".join(riv_sel) if riv_sel else "Todos"),
+                  ("Fecha",", ".join(fecha_sel) if fecha_sel else "Todas"),
                   ("Posición",", ".join(pos_sel) if pos_sel else "Todas"),
                   ("Resultado",", ".join(res_sel) if res_sel else "Todos")],
             tablas=[("Registros de partido",tabla,"TOT DIST")],
             orientacion="L",key="part",
-            notas="Fuente: GPS_LONG, sesiones de tipo partido. No incluye datos de la hoja MD.")
+            notas="Fuente: GPS_LONG, día de partido (DIA=MD, SES=PARTIDO, RIVAL válido). No incluye datos de la hoja MD.")
 
 # ══════════════════════════════════════════════════════════════
 # RESUMEN INDIVIDUAL
@@ -1914,6 +1942,52 @@ def pagina_resumen():
                 if dg.empty:
                     st.info(f"Sin datos de GPS para {jsel}.")
                 else:
+                    # ── Filtros Año / Microciclo / Fecha — los microciclos se
+                    # reinician cada temporada (el "44" de 2025 no es el mismo
+                    # que el "44" de 2026), así que sin filtro de año la tabla
+                    # de abajo mezclaba datos de años distintos bajo el mismo
+                    # número de microciclo. ──
+                    if "AÑO" in dg.columns:
+                        anios_r=sorted([int(a) for a in dg["AÑO"].dropna().unique() if int(a)>1900],reverse=True)
+                        anio_col_r="AÑO"
+                    elif cg.get("fecha"):
+                        dg["_anio_r"]=pd.to_datetime(dg[cg["fecha"]],dayfirst=True,errors="coerce").dt.year
+                        anios_r=sorted([int(a) for a in dg["_anio_r"].dropna().unique() if a>1900],reverse=True)
+                        anio_col_r="_anio_r"
+                    else:
+                        anios_r=[]; anio_col_r=None
+
+                    fg1,fg2,fg3=st.columns(3)
+                    with fg1:
+                        anio_sel_r=st.multiselect("📅 Año(s)",[str(a) for a in anios_r],
+                                                  default=[str(anios_r[0])] if anios_r else [],
+                                                  key="res_gps_anio",placeholder="Todos los años")
+                    if anio_sel_r and anio_col_r:
+                        dg=dg[dg[anio_col_r].isin([int(a) for a in anio_sel_r])]
+                    with fg2:
+                        micol=cg.get("micro")
+                        micros_r=_sort_micro([m for m in dg[micol].dropna().astype(str).unique() if m and m!="nan"]) if micol else []
+                        micro_sel_r=st.multiselect("Microciclo(s)",micros_r,default=[],key="res_gps_micro",
+                                                   placeholder="Todos")
+                    if micro_sel_r and micol:
+                        dg=dg[dg[micol].astype(str).isin(micro_sel_r)]
+                    with fg3:
+                        rango_r=None
+                        if cg.get("fecha"):
+                            fv_r=pd.to_datetime(dg[cg["fecha"]],dayfirst=True,errors="coerce").dropna()
+                            if not fv_r.empty:
+                                frmin,frmax=fv_r.min().date(),fv_r.max().date()
+                                if frmin==frmax: frmax=frmin+pd.Timedelta(days=1)
+                                rango_r=st.date_input("Rango de fechas",value=(frmin,frmax),
+                                                      min_value=frmin,max_value=frmax,key="res_gps_fecha")
+                    if cg.get("fecha") and isinstance(rango_r,(list,tuple)) and len(rango_r)==2:
+                        _fdr=pd.to_datetime(dg[cg["fecha"]],dayfirst=True,errors="coerce")
+                        inir,finr=pd.Timestamp(rango_r[0]),pd.Timestamp(rango_r[1])+pd.Timedelta(days=1)
+                        dg=dg[(_fdr>=inir)&(_fdr<finr)]
+
+                if dg.empty:
+                    st.warning(f"Sin datos de GPS para {jsel} con esos filtros.")
+                else:
                     _vars_gps=[("td","DIST TOT"),("mtsmin","MTS/MIN"),("m19","MTS >19"),
                                ("m24","MTS >24"),("sp24","#SP"),("vmax","VEL MAX")]
                     tarjetas=[]
@@ -1928,7 +2002,7 @@ def pagina_resumen():
                         tarjetas.append(_tarjeta_maxprom(lab,vmax,vprom))
                     st.markdown(_fila(tarjetas),unsafe_allow_html=True)
 
-                    # ── Tabla: carga por microciclo (últimos 10) ──
+                    # ── Tabla: carga por microciclo (últimos 10, ya filtrados por año) ──
                     _vars_tabla=_vars_gps+[("acel","ACEL"),("des","DES")]
                     if cg.get("micro"):
                         micol=cg["micro"]
