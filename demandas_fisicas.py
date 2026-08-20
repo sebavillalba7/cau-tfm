@@ -370,23 +370,26 @@ def pagina_demandas_fisicas(cargar_sheet, pdf_btn=None):
             psel = st.multiselect("Posición", poss, default=[], key="dem_pos")
             if psel: dff = dff[dff["_pos"].isin(psel)]
 
-        g1, g2, g3, g4 = st.columns(4)
+        g1, g2, g3, g4, g5 = st.columns(5)
         with g1:
-            # FILTRO FECHA (faltaba)
             val = dff["_fecha"].dropna()
+            rango = None
             if not val.empty:
                 fmin, fmax = val.min().date(), val.max().date()
-                rango = st.date_input("Rango de fechas", value=(fmin, fmax),
-                                      min_value=fmin, max_value=fmax, key="dem_fecha")
-                if isinstance(rango, (list, tuple)) and len(rango) == 2:
-                    ini, fin = pd.Timestamp(rango[0]), pd.Timestamp(rango[1]) + pd.Timedelta(days=1)
-                    dff = dff[dff["_fecha"].isna() | ((dff["_fecha"] >= ini) & (dff["_fecha"] < fin))]
+                if fmin == fmax: fmax = fmin + pd.Timedelta(days=1)
+                f_desde = st.date_input("Desde", value=fmin, min_value=fmin, max_value=fmax, key="dem_fecha_desde")
         with g2:
+            if not val.empty:
+                f_hasta = st.date_input("Hasta", value=fmax, min_value=fmin, max_value=fmax, key="dem_fecha_hasta")
+                if f_desde > f_hasta: f_desde, f_hasta = f_hasta, f_desde
+                ini, fin = pd.Timestamp(f_desde), pd.Timestamp(f_hasta) + pd.Timedelta(days=1)
+                dff = dff[dff["_fecha"].isna() | ((dff["_fecha"] >= ini) & (dff["_fecha"] < fin))]
+        with g3:
             n_part = st.slider("Partidos de referencia", 3, 10, 5, key="dem_npart",
                                help="Cuántos partidos oficiales recientes definen la demanda de competencia.")
-        with g3:
-            min_ref = st.slider("Minutos mínimos por partido", 45, 90, 70, step=5, key="dem_minref")
         with g4:
+            min_ref = st.slider("Minutos mínimos por partido", 45, 90, 70, step=5, key="dem_minref")
+        with g5:
             jugs = sorted(dff["_jug"].unique().tolist())
             jsel = st.multiselect("Jugador", jugs, default=[], key="dem_jug")
             if jsel: dff = dff[dff["_jug"].isin(jsel)]
@@ -548,7 +551,7 @@ def pagina_demandas_fisicas(cargar_sheet, pdf_btn=None):
     #  TAB 2 — EWMA GRUPAL POR VARIABLE
     # ═════════════════════════════════════════════════════════════════
     with t2:
-        c1, c2, c3, c4 = st.columns(4)
+        c1, c2, c3, c4, c5 = st.columns(5)
         with c1:
             temps2 = ["Todas"] + sorted([x for x in d["_temp"].unique() if x and x != "nan"], reverse=True)
             t2sel = st.selectbox("Año", temps2, index=1 if len(temps2) > 1 else 0, key="ew_temp")
@@ -559,13 +562,15 @@ def pagina_demandas_fisicas(cargar_sheet, pdf_btn=None):
             mics2 = ["Todos"] + sorted([x for x in d["_micro"].unique() if x and x not in ("nan","0","0.0","")],
                                        key=lambda z: (len(z), z), reverse=True)
             m2sel = st.selectbox("Microciclo", mics2, index=1 if len(mics2) > 1 else 0, key="ew_micro")
-        with c4:
-            val2 = d["_fecha"].dropna()
-            rango2 = None
-            if not val2.empty:
-                f2min, f2max = val2.min().date(), val2.max().date()
-                rango2 = st.date_input("Rango de fechas", value=(f2min, f2max),
-                                       min_value=f2min, max_value=f2max, key="ew_fecha")
+        val2 = d["_fecha"].dropna()
+        rango2 = None
+        if not val2.empty:
+            f2min, f2max = val2.min().date(), val2.max().date()
+            if f2min == f2max: f2max = f2min + pd.Timedelta(days=1)
+            with c4: f2_desde = st.date_input("Desde", value=f2min, min_value=f2min, max_value=f2max, key="ew_fecha_desde")
+            with c5: f2_hasta = st.date_input("Hasta", value=f2max, min_value=f2min, max_value=f2max, key="ew_fecha_hasta")
+            if f2_desde > f2_hasta: f2_desde, f2_hasta = f2_hasta, f2_desde
+            rango2 = (f2_desde, f2_hasta)
 
         dg = d.copy()
         if t2sel != "Todas": dg = dg[dg["_temp"] == t2sel]
@@ -628,7 +633,7 @@ def pagina_demandas_fisicas(cargar_sheet, pdf_btn=None):
     #  TAB 3 — EWMA INDIVIDUAL
     # ═════════════════════════════════════════════════════════════════
     with t3:
-        jsel3, msel3 = st.columns(2)
+        jsel3, msel3, fd3, fh3 = st.columns(4)
         with jsel3:
             jind = st.selectbox("Jugador", sorted(d["_jug"].unique().tolist()), key="ewi_jug")
         with msel3:
@@ -640,11 +645,12 @@ def pagina_demandas_fisicas(cargar_sheet, pdf_btn=None):
         val3 = di["_fecha"].dropna()
         if not val3.empty:
             f3min, f3max = val3.min().date(), val3.max().date()
-            rango3 = st.date_input("Rango de fechas", value=(f3min, f3max),
-                                   min_value=f3min, max_value=f3max, key="ewi_fecha")
-            if isinstance(rango3, (list, tuple)) and len(rango3) == 2:
-                ini3, fin3 = pd.Timestamp(rango3[0]), pd.Timestamp(rango3[1]) + pd.Timedelta(days=1)
-                di = di[di["_fecha"].isna() | ((di["_fecha"] >= ini3) & (di["_fecha"] < fin3))]
+            if f3min == f3max: f3max = f3min + pd.Timedelta(days=1)
+            with fd3: f3_desde = st.date_input("Desde", value=f3min, min_value=f3min, max_value=f3max, key="ewi_fecha_desde")
+            with fh3: f3_hasta = st.date_input("Hasta", value=f3max, min_value=f3min, max_value=f3max, key="ewi_fecha_hasta")
+            if f3_desde > f3_hasta: f3_desde, f3_hasta = f3_hasta, f3_desde
+            ini3, fin3 = pd.Timestamp(f3_desde), pd.Timestamp(f3_hasta) + pd.Timedelta(days=1)
+            di = di[di["_fecha"].isna() | ((di["_fecha"] >= ini3) & (di["_fecha"] < fin3))]
         labs = dict((a, b) for a, b, _ in METRICAS)
 
         ewi = ewma_resumen(di)
