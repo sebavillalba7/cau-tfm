@@ -356,7 +356,7 @@ def pagina_demandas_fisicas(cargar_sheet, pdf_btn=None):
             tsel = st.selectbox("Año", temps, index=1 if len(temps) > 1 else 0, key="dem_temp")
             if tsel != "Todas": dff = dff[dff["_temp"] == tsel]
         with f2:
-            mics = ["Todos"] + sorted([x for x in dff["_micro"].unique() if x and x != "nan"],
+            mics = ["Todos"] + sorted([x for x in dff["_micro"].unique() if x and x not in ("nan","0","0.0","")],
                                       key=lambda z: (len(z), z), reverse=True)
             msel = st.selectbox("Microciclo", mics, index=1 if len(mics) > 1 else 0, key="dem_mic")
             if msel != "Todos": dff = dff[dff["_micro"] == msel]
@@ -556,7 +556,7 @@ def pagina_demandas_fisicas(cargar_sheet, pdf_btn=None):
             pos2 = sorted([x for x in d["_pos"].unique() if x and x != "nan"])
             p2sel = st.multiselect("Posición", pos2, default=[], key="ew_pos")
         with c3:
-            mics2 = ["Todos"] + sorted([x for x in d["_micro"].unique() if x and x != "nan"],
+            mics2 = ["Todos"] + sorted([x for x in d["_micro"].unique() if x and x not in ("nan","0","0.0","")],
                                        key=lambda z: (len(z), z), reverse=True)
             m2sel = st.selectbox("Microciclo", mics2, index=1 if len(mics2) > 1 else 0, key="ew_micro")
         with c4:
@@ -632,7 +632,7 @@ def pagina_demandas_fisicas(cargar_sheet, pdf_btn=None):
         with jsel3:
             jind = st.selectbox("Jugador", sorted(d["_jug"].unique().tolist()), key="ewi_jug")
         with msel3:
-            mics3 = ["Todos"] + sorted([x for x in d["_micro"].unique() if x and x != "nan"],
+            mics3 = ["Todos"] + sorted([x for x in d["_micro"].unique() if x and x not in ("nan","0","0.0","")],
                                        key=lambda z: (len(z), z), reverse=True)
             m3sel = st.selectbox("Microciclo", mics3, key="ewi_micro")
         di = d[d["_jug"] == jind]
