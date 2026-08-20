@@ -270,10 +270,11 @@ def html_table(df, highlight_cols=None, num_format=None, max_rows=15, height=420
                 display = str(val) if str(val) not in ["nan","None","<NA>"] else "—"
                 sortval = display.lower()
             style = cell_color(col, val)
+            base_color = "" if style else "color:#e2e8f0;"
             sv = str(sortval).replace('"',"&quot;")
             cells += (f'<td data-sort="{sv}" data-num="{1 if is_num else 0}" '
                       f'style="text-align:center;padding:9px 14px;border-bottom:1px solid rgba(255,255,255,0.05);'
-                      f'white-space:nowrap;{style}">{display}</td>')
+                      f'white-space:nowrap;{base_color}{style}">{display}</td>')
         rows_html += f"<tr>{cells}</tr>"
 
     cur = "cursor:pointer;user-select:none;" if sortable else ""
@@ -317,8 +318,8 @@ def html_table(df, highlight_cols=None, num_format=None, max_rows=15, height=420
 
     html_doc = f'''
     <html><head><style>
-        body {{ margin:0; background:transparent; font-family:'Inter',-apple-system,sans-serif; }}
-        table {{ width:max-content; min-width:100%; border-collapse:collapse; }}
+        body {{ margin:0; background:transparent; font-family:'Inter',-apple-system,sans-serif; color:#e2e8f0; }}
+        table {{ width:max-content; min-width:100%; border-collapse:collapse; color:#e2e8f0; }}
         tr:hover td {{ filter:brightness(1.12); }}
         th:hover {{ background:rgba(26,90,180,0.4) !important; }}
     </style></head><body>
@@ -525,18 +526,19 @@ def pagina_historial():
             result.append(row)
         return pd.DataFrame(result)
 
-    df_agrup=agrupar(df)
-
     st.markdown('<div class="filter-bar">',unsafe_allow_html=True)
     fc1,fc2,fc3,fc4=st.columns(4)
-    with fc1: buscar=st.text_input("🔍 Buscar",placeholder="Nombre...",key="hist_buscar")
-    with fc2:
+    with fc1: dfa,_=filtro_anio_widget(df,"hist")
+    with fc2: buscar=st.text_input("🔍 Buscar",placeholder="Nombre...",key="hist_buscar")
+    with fc3:
         todas_pos=["Todas"]+(sorted(df[pos_col].dropna().astype(str).unique().tolist()) if pos_col else [])
         pos_sel=st.selectbox("Posición",todas_pos,key="hist_pos")
-    with fc3: dfa,_=filtro_anio_widget(df,"hist")
     with fc4: vista=st.radio("Vista",["🃏 Cards","📋 Tabla"],horizontal=True,key="hist_vista")
     st.markdown('</div>',unsafe_allow_html=True)
+    if dfa.empty:
+        st.warning("Sin jugadores para el año seleccionado."); return
 
+    df_agrup=agrupar(dfa)
     dff=df_agrup.copy()
     if buscar: dff=dff[dff[jcol].astype(str).str.contains(buscar,case=False,na=False)]
     if pos_sel!="Todas" and pos_col: dff=dff[dff["_posiciones"].str.contains(pos_sel,case=False,na=False)]
@@ -896,34 +898,54 @@ def pagina_estadisticas_medicas():
     lesion_tipo_col=ml.get("lesion")
     obs_col="OBSERVACIONES" if "OBSERVACIONES" in df.columns else None
 
-    # Filtros: JUGADOR, MICRO, FECHA, TIPO, ID_TIPO
+    # ── AÑO — SIEMPRE el primer filtro, default al más reciente ──
+    if "AÑO" in df.columns:
+        anios_m=sorted([int(a) for a in df["AÑO"].dropna().unique() if int(a)>1900],reverse=True)
+        anio_col_m="AÑO"
+    elif fecha_col:
+        df=df.assign(_anio_les=pd.to_datetime(df[fecha_col],dayfirst=True,errors="coerce").dt.year)
+        anios_m=sorted([int(a) for a in df["_anio_les"].dropna().unique() if a>1900],reverse=True)
+        anio_col_m="_anio_les"
+    else:
+        anios_m=[]; anio_col_m=None
+
+    fc0=st.columns(1)[0]
+    with fc0:
+        anio_sel_m=st.multiselect("📅 Año(s)",[str(a) for a in anios_m],
+                                  default=[str(anios_m[0])] if anios_m else [],
+                                  key="med_anio",placeholder="Todos los años")
+    df_anio=df.copy()
+    if anio_sel_m and anio_col_m:
+        df_anio=df_anio[df_anio[anio_col_m].isin([int(a) for a in anio_sel_m])]
+
+    # Filtros: JUGADOR, MICRO, FECHA, TIPO, ID_TIPO (sobre el subset ya filtrado por año)
     st.markdown('<div class="filter-bar">',unsafe_allow_html=True)
     fc=st.columns(5)
-    jugs=["Todos"]+(sorted(df[jcol].dropna().astype(str).unique().tolist()) if jcol else [])
-    micros=["Todos"]+(_sort_micro([m for m in df[micro_col].dropna().astype(str).unique() if m and m!="nan"]) if micro_col else [])
-    tipos=["Todos"]+(sorted(df[tipo_col].dropna().astype(str).unique().tolist()) if tipo_col else [])
-    id_tipos=["Todos"]+(sorted(df[id_tipo_col].dropna().astype(str).unique().tolist()) if id_tipo_col else [])
+    jugs=["Todos"]+(sorted(df_anio[jcol].dropna().astype(str).unique().tolist()) if jcol else [])
+    micros=["Todos"]+(_sort_micro([m for m in df_anio[micro_col].dropna().astype(str).unique() if m and m!="nan"]) if micro_col else [])
+    tipos=["Todos"]+(sorted(df_anio[tipo_col].dropna().astype(str).unique().tolist()) if tipo_col else [])
+    id_tipos=["Todos"]+(sorted(df_anio[id_tipo_col].dropna().astype(str).unique().tolist()) if id_tipo_col else [])
     with fc[0]: jsel=st.selectbox("JUGADOR",jugs,key="med_jug")
     with fc[1]: msel=st.selectbox("MICRO",micros,key="med_micro")
     with fc[2]:
+        rango=None
         if fecha_col:
-            fv=pd.to_datetime(df[fecha_col],dayfirst=True,errors="coerce").dropna()
+            fv=pd.to_datetime(df_anio[fecha_col],dayfirst=True,errors="coerce").dropna()
             if not fv.empty:
                 fmin,fmax=fv.min().date(),fv.max().date()
+                if fmin==fmax: fmax=fmin+pd.Timedelta(days=1)
                 rango=st.date_input("FECHA",value=(fmin,fmax),min_value=fmin,max_value=fmax,key="med_fecha")
-            else: rango=None
-        else: rango=None
     with fc[3]: tsel=st.selectbox("TIPO",tipos,key="med_tipo")
     with fc[4]: itsel=st.selectbox("ID_TIPO",id_tipos,key="med_id_tipo")
     st.markdown('</div>',unsafe_allow_html=True)
 
-    dff=df.copy()
+    dff=df_anio.copy()
     if jsel!="Todos" and jcol: dff=dff[dff[jcol].astype(str)==jsel]
     if msel!="Todos" and micro_col: dff=dff[dff[micro_col].astype(str)==msel]
     if fecha_col and isinstance(rango,(list,tuple)) and len(rango)==2:
         _fd=pd.to_datetime(dff[fecha_col],dayfirst=True,errors="coerce")
         ini,fin=pd.Timestamp(rango[0]),pd.Timestamp(rango[1])+pd.Timedelta(days=1)
-        dff=dff[_fd.isna()|((_fd>=ini)&(_fd<fin))]
+        dff=dff[(_fd>=ini)&(_fd<fin)]
     if tsel!="Todos" and tipo_col: dff=dff[dff[tipo_col].astype(str)==tsel]
     if itsel!="Todos" and id_tipo_col: dff=dff[dff[id_tipo_col].astype(str)==itsel]
     osel="Todas"
@@ -1586,10 +1608,10 @@ def pagina_demandas():
 # ══════════════════════════════════════════════════════════════
 # CONTROL DE PARTIDOS
 # ══════════════════════════════════════════════════════════════
-def _tarjeta_maxprom(label,val_max,val_prom,color="#fff"):
+def _tarjeta_maxprom(label,val_max,val_prom,color="#fff",decimales=1):
     """Tarjeta con valor MAX grande arriba y PROMEDIO chico abajo."""
-    vmax_s="—" if val_max is None or pd.isna(val_max) else f"{val_max:,.1f}"
-    vprom_s="—" if val_prom is None or pd.isna(val_prom) else f"{val_prom:,.1f}"
+    vmax_s="—" if val_max is None or pd.isna(val_max) else f"{val_max:,.{decimales}f}"
+    vprom_s="—" if val_prom is None or pd.isna(val_prom) else f"{val_prom:,.{decimales}f}"
     return (f'<div style="flex:1;min-width:120px;background:rgba(8,18,38,.9);'
             f'border:1px solid rgba(26,90,180,.3);border-radius:12px;padding:12px 10px;text-align:center;">'
             f'<div style="font-size:9px;letter-spacing:1px;color:#94a3b8;text-transform:uppercase;'
@@ -1609,7 +1631,13 @@ def _fila(items):
     return ('<div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 14px;">'
             + "".join(items) + "</div>")
 
-def _sort_micro(vals):
+def _sort_micro(vals, excluir_cero=True):
+    """Ordena microciclos numéricamente. Por defecto excluye '0'/vacíos: en la
+    práctica ese valor aparece cuando la celda MICROCICLO está vacía en la hoja
+    y se lee como 0 — termina siendo un cajón de sastre que junta filas de
+    varias semanas reales bajo un mismo número inexistente."""
+    if excluir_cero:
+        vals = [v for v in vals if str(v).strip() not in ("0","0.0","","nan","None")]
     def _k(z):
         try: return (0, float(str(z).replace(",",".")))
         except Exception: return (1, len(str(z)), str(z))
@@ -1620,7 +1648,7 @@ def pagina_control_partidos():
     st.markdown(
         '<div style="background:rgba(26,90,180,0.08);border:1px solid rgba(26,90,180,0.25);'
         'border-radius:12px;padding:10px 16px;margin-bottom:12px;font-size:11.5px;color:#94a3b8;">'
-        'Fuente: <b style="color:#93c5fd;">GPS_LONG</b> (sesiones de tipo partido, campo SES/RIVAL). '
+        'Fuente: <b style="color:#93c5fd;">GPS_LONG</b> (día de partido, <code>DIA == "MD"</code>). '
         'No se usa la hoja MD, por regla de datos del proyecto.</div>', unsafe_allow_html=True)
 
     gps=cargar_sheet("gps")
@@ -1631,6 +1659,7 @@ def pagina_control_partidos():
 
     rival_col=next((c for c in gps.columns if c.strip().upper()=="RIVAL"),None)
     res_col=next((c for c in gps.columns if c.strip().upper()=="RES"),None)
+    dia_col=next((c for c in gps.columns if c.strip().upper()=="DIA"),None)
     m1924_col=next((c for c in gps.columns if "19-24" in c.replace(" ","").upper()),None)
     pos_col=cg.get("pos") or pos_col_find(gps)
     fecha_col=cg.get("fecha")
@@ -1638,12 +1667,35 @@ def pagina_control_partidos():
     min_col=cg.get("min")
     jcol=cg["jugador"]
 
+    # ── Día de partido: preferimos DIA=="MD" (día exacto del partido). Antes
+    # se usaba RIVAL no-nulo como señal, pero el RIVAL suele quedar cargado en
+    # TODA la semana (MD-2, MD-1, MD, MD+1, MD+2), no solo el día del juego —
+    # eso inflaba las tarjetas de "mejor partido" sumando la semana entera. ──
     mask=pd.Series(False,index=gps.index)
-    if ses_col: mask=mask | dfx.es_partido(gps[ses_col])
-    if rival_col: mask=mask | gps[rival_col].astype(str).str.strip().replace("nan","").ne("")
+    if dia_col:
+        mask = mask | (gps[dia_col].astype(str).str.strip().str.upper()=="MD")
+    elif ses_col:
+        mask = mask | dfx.es_partido(gps[ses_col])
+    elif rival_col:
+        mask = mask | gps[rival_col].astype(str).str.strip().replace("nan","").ne("")
     dp=gps[mask].copy()
     if dp.empty:
-        st.info("No se identificaron sesiones de partido en GPS_LONG (revisá la columna SES o RIVAL)."); return
+        st.info("No se identificaron sesiones de partido en GPS_LONG (revisá la columna DIA, debería tener el valor 'MD' en el día del partido)."); return
+
+    # ── Filtro de Año — SIEMPRE el primero, default al más reciente ──
+    if "AÑO" in dp.columns:
+        anios_cp=sorted([int(a) for a in dp["AÑO"].dropna().unique() if int(a)>1900],reverse=True)
+    else:
+        dp["_anio_tmp"]=pd.to_datetime(dp[fecha_col],dayfirst=True,errors="coerce").dt.year if fecha_col else np.nan
+        anios_cp=sorted([int(a) for a in dp["_anio_tmp"].dropna().unique() if a>1900],reverse=True)
+        dp["AÑO"]=dp["_anio_tmp"]
+    anio_sel=st.multiselect("📅 Año(s)",[str(a) for a in anios_cp],
+                            default=[str(anios_cp[0])] if anios_cp else [],
+                            key="cp_anio",placeholder="Todos los años")
+    if anio_sel:
+        dp=dp[dp["AÑO"].isin([int(a) for a in anio_sel])]
+    if dp.empty:
+        st.warning("Sin partidos para el año seleccionado."); return
 
     # ── Parseo de fecha para poder ordenar / defaultear al último partido ──
     if fecha_col:
@@ -1705,7 +1757,7 @@ def pagina_control_partidos():
             vprom=vals.mean() if len(vals)>0 else None
         else:
             vmax=vprom=None
-        tarjetas1.append(_tarjeta_maxprom(lab,vmax,vprom))
+        tarjetas1.append(_tarjeta_maxprom(lab,vmax,vprom,decimales=1 if lab=="VEL MAX" else 0))
     st.markdown(_fila(tarjetas1),unsafe_allow_html=True)
 
     # ═══════════════════════════════════════════════════════════════
@@ -1738,7 +1790,7 @@ def pagina_control_partidos():
             prom=por_partido.mean() if len(por_partido)>0 else None
         else:
             mejor=prom=None
-        tarjetas2.append(_tarjeta_maxprom(lab,mejor,prom))
+        tarjetas2.append(_tarjeta_maxprom(lab,mejor,prom,decimales=1 if lab=="VEL MAX" else 0))
     st.markdown(_fila(tarjetas2),unsafe_allow_html=True)
 
     # ═══════════════════════════════════════════════════════════════
@@ -1761,6 +1813,8 @@ def pagina_control_partidos():
     _sp24=to_num_col(dff[cg["sp24"]]) if cg.get("sp24") else pd.Series(np.nan,index=dff.index)
     _vmax=to_num_col(dff[cg["vmax"]]) if cg.get("vmax") else pd.Series(np.nan,index=dff.index)
     _m1924=to_num_col(dff[m1924_col]) if m1924_col else pd.Series(np.nan,index=dff.index)
+    _acel=to_num_col(dff[cg["acel"]]) if cg.get("acel") else pd.Series(np.nan,index=dff.index)
+    _des=to_num_col(dff[cg["des"]]) if cg.get("des") else pd.Series(np.nan,index=dff.index)
 
     tabla["MIN"]=_min.round(0)
     tabla["TOT DIST"]=_td.round(1)
@@ -1771,6 +1825,8 @@ def pagina_control_partidos():
     tabla["MTS >24"]=_m24.round(1)
     tabla["#SP"]=_sp24.round(1)
     tabla["VEL MAX"]=_vmax.round(1)
+    tabla["ACEL"]=_acel.round(1)
+    tabla["DES"]=_des.round(1)
     tabla=tabla.reset_index(drop=True)
 
     html_table(tabla,highlight_cols=["TOT DIST","MTS >19"],max_rows=25,height=460)
