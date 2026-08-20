@@ -217,12 +217,16 @@ def plotly_dark(fig,h=300):
     return fig
 
 
-def html_table(df, highlight_cols=None, num_format=None, max_rows=15, height=420, max_cols=14, sortable=True):
+def html_table(df, highlight_cols=None, num_format=None, max_rows=15, height=420, max_cols=14,
+                sortable=True, custom_colors=None):
     """max_rows/max_cols RECORTAN de verdad los datos enviados al browser. Antes max_rows solo
     decidia el CSS de scroll pero se renderizaban TODAS las filas: con la hoja GPS completa
     (miles de filas x 60 cols) eso generaba ~250 MB de HTML -> MessageSizeError.
     sortable=True agrega click-en-encabezado para ordenar (asc/desc), sin perder los colores
-    de fondo por celda (highlight_cols)."""
+    de fondo por celda (highlight_cols).
+    custom_colors: dict opcional {nombre_columna: funcion(valor) -> "background:#xxx;color:#yyy"}
+    para semáforos de umbral fijo (ej. riesgo bajo/medio/alto), en vez del gradiente relativo
+    min-max de highlight_cols."""
     if df is None or df.empty:
         st.info("Sin datos."); return
     _tf, _tc = len(df), len(df.columns)
@@ -230,6 +234,7 @@ def html_table(df, highlight_cols=None, num_format=None, max_rows=15, height=420
     if _tf > max_rows: df = df.head(max_rows)
     highlight_cols = highlight_cols or []
     num_format = num_format or {}
+    custom_colors = custom_colors or {}
 
     # Calcular rangos para escala de color por columna
     col_ranges = {}
@@ -240,6 +245,11 @@ def html_table(df, highlight_cols=None, num_format=None, max_rows=15, height=420
                 col_ranges[col] = (vals.min(), vals.max())
 
     def cell_color(col, val):
+        if col in custom_colors:
+            try:
+                out = custom_colors[col](val)
+                if out: return out
+            except Exception: pass
         if col not in col_ranges: return ""
         try:
             v = float(str(val).replace(",","."))
@@ -918,25 +928,27 @@ def pagina_estadisticas_medicas():
     if anio_sel_m and anio_col_m:
         df_anio=df_anio[df_anio[anio_col_m].isin([int(a) for a in anio_sel_m])]
 
-    # Filtros: JUGADOR, MICRO, FECHA, TIPO, ID_TIPO (sobre el subset ya filtrado por año)
+    # Filtros: JUGADOR, MICRO, FECHA (Desde/Hasta), TIPO, ID_TIPO (sobre el subset ya filtrado por año)
     st.markdown('<div class="filter-bar">',unsafe_allow_html=True)
-    fc=st.columns(5)
+    fc=st.columns(6)
     jugs=["Todos"]+(sorted(df_anio[jcol].dropna().astype(str).unique().tolist()) if jcol else [])
     micros=["Todos"]+(_sort_micro([m for m in df_anio[micro_col].dropna().astype(str).unique() if m and m!="nan"]) if micro_col else [])
     tipos=["Todos"]+(sorted(df_anio[tipo_col].dropna().astype(str).unique().tolist()) if tipo_col else [])
     id_tipos=["Todos"]+(sorted(df_anio[id_tipo_col].dropna().astype(str).unique().tolist()) if id_tipo_col else [])
     with fc[0]: jsel=st.selectbox("JUGADOR",jugs,key="med_jug")
     with fc[1]: msel=st.selectbox("MICRO",micros,key="med_micro")
-    with fc[2]:
-        rango=None
-        if fecha_col:
-            fv=pd.to_datetime(df_anio[fecha_col],dayfirst=True,errors="coerce").dropna()
-            if not fv.empty:
-                fmin,fmax=fv.min().date(),fv.max().date()
-                if fmin==fmax: fmax=fmin+pd.Timedelta(days=1)
-                rango=st.date_input("FECHA",value=(fmin,fmax),min_value=fmin,max_value=fmax,key="med_fecha")
-    with fc[3]: tsel=st.selectbox("TIPO",tipos,key="med_tipo")
-    with fc[4]: itsel=st.selectbox("ID_TIPO",id_tipos,key="med_id_tipo")
+    rango=None
+    if fecha_col:
+        fv=pd.to_datetime(df_anio[fecha_col],dayfirst=True,errors="coerce").dropna()
+        if not fv.empty:
+            fmin,fmax=fv.min().date(),fv.max().date()
+            if fmin==fmax: fmax=fmin+pd.Timedelta(days=1)
+            with fc[2]: f_desde=st.date_input("Desde",value=fmin,min_value=fmin,max_value=fmax,key="med_fecha_desde")
+            with fc[3]: f_hasta=st.date_input("Hasta",value=fmax,min_value=fmin,max_value=fmax,key="med_fecha_hasta")
+            if f_desde>f_hasta: f_desde,f_hasta=f_hasta,f_desde
+            rango=(f_desde,f_hasta)
+    with fc[4]: tsel=st.selectbox("TIPO",tipos,key="med_tipo")
+    with fc[5]: itsel=st.selectbox("ID_TIPO",id_tipos,key="med_id_tipo")
     st.markdown('</div>',unsafe_allow_html=True)
 
     dff=df_anio.copy()
@@ -948,8 +960,16 @@ def pagina_estadisticas_medicas():
         dff=dff[(_fd>=ini)&(_fd<fin)]
     if tsel!="Todos" and tipo_col: dff=dff[dff[tipo_col].astype(str)==tsel]
     if itsel!="Todos" and id_tipo_col: dff=dff[dff[id_tipo_col].astype(str)==itsel]
+    id_registro_col=ml.get("id_registro")
     osel="Todas"
-    les_df=dff[dff[tipo_col].astype(str).str.upper()=="LESION"].copy() if tipo_col else dff.copy()
+    # LESION vs ENFERMEDAD vive en ID_REGISTRO (no en TIPO, que es la
+    # clasificación de la lesión en sí). Antes esto filtraba por tipo_col,
+    # que ya no contiene esos valores tras separar TIPO de ID_REGISTRO como
+    # columnas distintas -> les_df quedaba vacío y rompía todos los gráficos.
+    if id_registro_col and id_registro_col in dff.columns:
+        les_df=dff[dff[id_registro_col].astype(str).str.upper()=="LESION"].copy()
+    else:
+        les_df=dff.copy()
 
     # ── Fila 1: tabla incidencias (col izq) + días x año + tipo lesión (col der) ──
     col_izq, col_der = st.columns([1.1, 1.9])
@@ -1957,7 +1977,7 @@ def pagina_resumen():
                     else:
                         anios_r=[]; anio_col_r=None
 
-                    fg1,fg2,fg3=st.columns(3)
+                    fg1,fg2,fg3,fg4=st.columns(4)
                     with fg1:
                         anio_sel_r=st.multiselect("📅 Año(s)",[str(a) for a in anios_r],
                                                   default=[str(anios_r[0])] if anios_r else [],
@@ -1971,15 +1991,16 @@ def pagina_resumen():
                                                    placeholder="Todos")
                     if micro_sel_r and micol:
                         dg=dg[dg[micol].astype(str).isin(micro_sel_r)]
-                    with fg3:
-                        rango_r=None
-                        if cg.get("fecha"):
-                            fv_r=pd.to_datetime(dg[cg["fecha"]],dayfirst=True,errors="coerce").dropna()
-                            if not fv_r.empty:
-                                frmin,frmax=fv_r.min().date(),fv_r.max().date()
-                                if frmin==frmax: frmax=frmin+pd.Timedelta(days=1)
-                                rango_r=st.date_input("Rango de fechas",value=(frmin,frmax),
-                                                      min_value=frmin,max_value=frmax,key="res_gps_fecha")
+                    rango_r=None
+                    if cg.get("fecha"):
+                        fv_r=pd.to_datetime(dg[cg["fecha"]],dayfirst=True,errors="coerce").dropna()
+                        if not fv_r.empty:
+                            frmin,frmax=fv_r.min().date(),fv_r.max().date()
+                            if frmin==frmax: frmax=frmin+pd.Timedelta(days=1)
+                            with fg3: fr_desde=st.date_input("Desde",value=frmin,min_value=frmin,max_value=frmax,key="res_gps_desde")
+                            with fg4: fr_hasta=st.date_input("Hasta",value=frmax,min_value=frmin,max_value=frmax,key="res_gps_hasta")
+                            if fr_desde>fr_hasta: fr_desde,fr_hasta=fr_hasta,fr_desde
+                            rango_r=(fr_desde,fr_hasta)
                     if cg.get("fecha") and isinstance(rango_r,(list,tuple)) and len(rango_r)==2:
                         _fdr=pd.to_datetime(dg[cg["fecha"]],dayfirst=True,errors="coerce")
                         inir,finr=pd.Timestamp(rango_r[0]),pd.Timestamp(rango_r[1])+pd.Timedelta(days=1)
@@ -2505,7 +2526,7 @@ def render_pagina():
     _check_versiones()
     u=st.session_state.usuario;p=st.session_state.pagina
     if not tiene_acceso(u,p) and p!="admin": st.error("🚫 No tenés acceso.");return
-    {"home":pagina_home,"historial":pagina_historial,"estadisticas_medicas":pagina_estadisticas_medicas,"evaluaciones":pagina_evaluaciones,"riesgo_lesion":lambda:mr.pagina_riesgo_lesion(cargar_sheet,pdf_btn),"demandas_fisicas":lambda:dfx.pagina_demandas_fisicas(cargar_sheet,pdf_btn),"control_partidos":pagina_control_partidos,"nutricion":pagina_nutricion,"resumen_individual":pagina_resumen,"admin":pagina_admin}.get(p,lambda:st.error("Página no encontrada"))()
+    {"home":pagina_home,"historial":pagina_historial,"estadisticas_medicas":pagina_estadisticas_medicas,"evaluaciones":pagina_evaluaciones,"riesgo_lesion":lambda:mr.pagina_riesgo_lesion(cargar_sheet,pdf_btn,html_table),"demandas_fisicas":lambda:dfx.pagina_demandas_fisicas(cargar_sheet,pdf_btn),"control_partidos":pagina_control_partidos,"nutricion":pagina_nutricion,"resumen_individual":pagina_resumen,"admin":pagina_admin}.get(p,lambda:st.error("Página no encontrada"))()
 
 if not st.session_state.logged:
     pagina_login()
