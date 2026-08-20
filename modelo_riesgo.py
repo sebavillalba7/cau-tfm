@@ -425,44 +425,76 @@ def pagina_riesgo_lesion(cargar_sheet, pdf_btn=None, html_table=None):
     if riesgo_jug.empty:
         st.info("Sin datos de riesgo para mostrar.")
     else:
-        n_show = st.slider("Filas a mostrar", 5, max(10, len(riesgo_jug)),
-                           min(10, len(riesgo_jug)), key="rl_nrows")
-        vista_rj = riesgo_jug.head(n_show).copy()
-        vista_rj["Última sesión"] = vista_rj["Última sesión"].apply(
-            lambda x: x.strftime("%d/%m/%Y") if pd.notna(x) else "—")
-        vista_rj["Riesgo"] = vista_rj["Riesgo"].round(0)
-        vista_rj["Nivel"] = vista_rj["Riesgo"].apply(lambda v: nivel_riesgo(v)[0])
-        vista_rj["ACWR"] = vista_rj["ACWR"].round(2)
-        cols_tabla = [c for c in ["Jugador","Última sesión","Riesgo","Nivel","ACWR"] if c in vista_rj.columns]
-        vista_rj = vista_rj[cols_tabla].reset_index(drop=True)
-
-        def _color_riesgo(v):
-            try:
-                _, color = nivel_riesgo(float(v))
-                return f"background:{color}33;color:{color};font-weight:800"
-            except Exception:
-                return None
-        def _color_nivel(v):
-            colores = {"BAJO":"#4ade80","MEDIO":"#fbbf24","ALTO":"#ef4444"}
-            c = colores.get(str(v).upper())
-            return f"background:{c}22;color:{c};font-weight:700" if c else None
-
-        if html_table:
-            html_table(vista_rj, custom_colors={"Riesgo":_color_riesgo,"Nivel":_color_nivel},
-                      max_rows=n_show, height=min(60+38*len(vista_rj),460))
+        hoy = pd.Timestamp.now().normalize()
+        activos_mes = riesgo_jug[riesgo_jug["Última sesión"] >= (hoy - pd.Timedelta(days=30))]
+        solo_activos = st.checkbox("Mostrar solo jugadores con registros en el último mes",
+                                   value=True, key="rl_solo_activos",
+                                   help="Desmarcá para ver también jugadores que ya no están sumando cargas (se fueron, lesión larga, etc.)")
+        base_rj = activos_mes if solo_activos else riesgo_jug
+        if base_rj.empty:
+            st.warning("Nadie tiene registros en el último mes. Desmarcá el filtro para ver el histórico completo.")
         else:
-            st.dataframe(vista_rj, use_container_width=True, hide_index=True)
-        st.caption(f"Mostrando {len(vista_rj)} de {len(riesgo_jug)} jugadores. Click en el encabezado para ordenar.")
+            # Orden por defecto: alfabético. El usuario puede reordenar por
+            # cualquier columna haciendo click en el encabezado de la tabla.
+            vista_rj = base_rj.sort_values("Jugador").copy()
+            vista_rj["Riesgo"] = vista_rj["Riesgo"].round(0)
+            vista_rj["Nivel"] = vista_rj["Riesgo"].apply(lambda v: nivel_riesgo(v)[0])
+            vista_rj["ACWR"] = vista_rj["ACWR"].round(2)
+            # OJO: "Última sesión" queda como Timestamp real, NO como string
+            # dd/mm/aaaa — así el click-para-ordenar de html_table ordena por
+            # fecha real y no por texto (donde "22/07" quedaba antes que
+            # "25/06" por orden alfabético de dígitos).
+            cols_tabla = [c for c in ["Jugador","Última sesión","Riesgo","Nivel","ACWR"] if c in vista_rj.columns]
+            vista_rj = vista_rj[cols_tabla].reset_index(drop=True)
 
-        # ── Gráfico de barras de riesgo ──────────────────────────────
-        fig = px.bar(vista_rj, x="Jugador", y="Riesgo", template="plotly_dark",
-                     color="Riesgo", color_continuous_scale=["#4ade80", "#fbbf24", "#ef4444"],
-                     range_color=[0, 100])
-        fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                          margin=dict(l=0, r=0, t=20, b=0), height=320, coloraxis_showscale=False,
-                          font=dict(color="#ffffff"))
-        fig.update_xaxes(color="#ffffff"); fig.update_yaxes(color="#ffffff")
-        st.plotly_chart(fig, use_container_width=True)
+            def _color_riesgo(v):
+                try:
+                    _, color = nivel_riesgo(float(v))
+                    return f"background:{color}33;color:{color};font-weight:800"
+                except Exception:
+                    return None
+            def _color_nivel(v):
+                colores = {"BAJO":"#4ade80","MEDIO":"#fbbf24","ALTO":"#ef4444"}
+                c = colores.get(str(v).upper())
+                return f"background:{c}22;color:{c};font-weight:700" if c else None
+
+            if html_table:
+                html_table(vista_rj, custom_colors={"Riesgo":_color_riesgo,"Nivel":_color_nivel},
+                          max_rows=max(len(vista_rj),10), height=min(60+38*len(vista_rj),460))
+            else:
+                st.dataframe(vista_rj, use_container_width=True, hide_index=True)
+            st.caption(f"Mostrando {len(vista_rj)} jugadores"
+                      f"{' con registros en el último mes' if solo_activos else ' (histórico completo)'}, "
+                      f"orden alfabético por defecto — click en cualquier encabezado para ordenar por esa columna.")
+
+        # ── Gráfico de barras de riesgo — filtro propio (últimos 2 meses)
+        # y selector de orden. Independiente del filtro de la tabla de
+        # arriba (que es de 1 mes) porque lo pediste distinto para cada uno. ──
+        activos_2m = riesgo_jug[riesgo_jug["Última sesión"] >= (hoy - pd.Timedelta(days=60))]
+        if not activos_2m.empty:
+            orden_g = st.selectbox("Ordenar gráfico por", 
+                                   ["Riesgo (mayor a menor)", "Alfabético", "Última sesión (más reciente)"],
+                                   key="rl_orden_grafico")
+            vista_g = activos_2m.copy()
+            if orden_g == "Riesgo (mayor a menor)":
+                vista_g = vista_g.sort_values("Riesgo", ascending=False)
+            elif orden_g == "Alfabético":
+                vista_g = vista_g.sort_values("Jugador")
+            else:
+                vista_g = vista_g.sort_values("Última sesión", ascending=False)
+
+            fig = px.bar(vista_g, x="Jugador", y="Riesgo", template="plotly_dark",
+                         color="Riesgo", color_continuous_scale=["#4ade80", "#fbbf24", "#ef4444"],
+                         range_color=[0, 100])
+            fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                              margin=dict(l=0, r=0, t=20, b=0), height=320, coloraxis_showscale=False,
+                              font=dict(color="#ffffff"),
+                              xaxis=dict(categoryorder="array", categoryarray=vista_g["Jugador"].tolist()))
+            fig.update_xaxes(color="#ffffff"); fig.update_yaxes(color="#ffffff")
+            st.plotly_chart(fig, use_container_width=True)
+            st.caption(f"{len(vista_g)} jugadores con registros en los últimos 2 meses.")
+        else:
+            st.info("Nadie tiene registros en los últimos 2 meses.")
 
     # ── Importancia de features (solo ML) ────────────────────────────
     if modo == "ml" and res["importancias"] is not None:
