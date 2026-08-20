@@ -325,11 +325,12 @@ def riesgo_actual_por_jugador(res):
 # ════════════════════════════════════════════════════════════════════════
 #  STREAMLIT  ·  Página integrable en la app (imports perezosos)
 # ════════════════════════════════════════════════════════════════════════
-def pagina_riesgo_lesion(cargar_sheet, pdf_btn=None):
+def pagina_riesgo_lesion(cargar_sheet, pdf_btn=None, html_table=None):
     """
     Página de la app. Recibe la función `cargar_sheet` de app.py y,
-    opcionalmente, `pdf_btn` de app.py para exportar el informe.
-    Uso en el router:  "riesgo_lesion": lambda: pagina_riesgo_lesion(cargar_sheet, pdf_btn)
+    opcionalmente, `pdf_btn` y `html_table` de app.py para exportar el
+    informe y renderizar la tabla ordenable con el mismo estilo del resto.
+    Uso en el router:  "riesgo_lesion": lambda: pagina_riesgo_lesion(cargar_sheet, pdf_btn, html_table)
     """
     import streamlit as st
     import plotly.express as px
@@ -375,11 +376,17 @@ def pagina_riesgo_lesion(cargar_sheet, pdf_btn=None):
         st.info("Sin sesiones para los filtros seleccionados."); return
 
     @st.cache_data(ttl=300, show_spinner="Entrenando modelo de riesgo…")
-    def _pipeline(_gps, _les, vent):
-        feat = construir_features(_gps)
+    def _pipeline(gps_in, les_in, vent):
+        # OJO: los parámetros NO llevan guion bajo a propósito. Streamlit
+        # excluye del hash de cache_data cualquier parámetro que empiece con
+        # "_" — con _gps/_les el cache quedaba fijo la primera vez y jamás
+        # se recalculaba al cambiar el filtro de Año (que sí cambia el
+        # contenido de gps). Sin el guion bajo, Streamlit hashea el
+        # DataFrame filtrado y el cache se invalida correctamente.
+        feat = construir_features(gps_in)
         if feat.empty:
             return None
-        feat = etiquetar(feat, _les if _les is not None else pd.DataFrame(), ventana_dias=vent)
+        feat = etiquetar(feat, les_in if les_in is not None else pd.DataFrame(), ventana_dias=vent)
         return entrenar_modelo(feat)
 
     res = _pipeline(gps, les, ventana)
@@ -420,28 +427,32 @@ def pagina_riesgo_lesion(cargar_sheet, pdf_btn=None):
     else:
         n_show = st.slider("Filas a mostrar", 5, max(10, len(riesgo_jug)),
                            min(10, len(riesgo_jug)), key="rl_nrows")
-        vista_rj = riesgo_jug.head(n_show)
-        filas = ""
-        for _, r in vista_rj.iterrows():
-            niv, color = nivel_riesgo(r["Riesgo"])
-            fecha = r["Última sesión"].strftime("%d/%m/%Y") if pd.notna(r["Última sesión"]) else "—"
-            acwr = f'{r["ACWR"]:.2f}' if pd.notna(r["ACWR"]) else "—"
-            filas += (
-                f'<tr><td style="padding:9px 14px;color:#e2e8f0;">{r["Jugador"]}</td>'
-                f'<td style="text-align:center;color:#94a3b8;">{fecha}</td>'
-                f'<td style="text-align:center;font-weight:800;color:{color};">{r["Riesgo"]:.0f}</td>'
-                f'<td style="text-align:center;"><span style="background:{color}22;color:{color};'
-                f'border:1px solid {color}55;border-radius:6px;padding:2px 10px;font-size:11px;font-weight:700;">{niv}</span></td>'
-                f'<td style="text-align:center;color:#cbd5e1;">{acwr}</td></tr>')
-        st.markdown(
-            f'<div style="background:#071428;border:1px solid rgba(26,90,180,0.3);border-radius:14px;overflow:hidden;">'
-            f'<table style="width:100%;border-collapse:collapse;font-size:13px;">'
-            f'<thead><tr>'
-            + "".join(f'<th style="padding:10px 14px;text-align:{a};font-size:10px;letter-spacing:1.5px;'
-                      f'text-transform:uppercase;color:#60a5fa;background:rgba(26,90,180,0.25);">{h}</th>'
-                      for h, a in [("Jugador","left"),("Última sesión","center"),("Riesgo","center"),("Nivel","center"),("ACWR","center")])
-            + f'</tr></thead><tbody>{filas}</tbody></table></div>', unsafe_allow_html=True)
-        st.caption(f"Mostrando {len(vista_rj)} de {len(riesgo_jug)} jugadores, ordenados por riesgo.")
+        vista_rj = riesgo_jug.head(n_show).copy()
+        vista_rj["Última sesión"] = vista_rj["Última sesión"].apply(
+            lambda x: x.strftime("%d/%m/%Y") if pd.notna(x) else "—")
+        vista_rj["Riesgo"] = vista_rj["Riesgo"].round(0)
+        vista_rj["Nivel"] = vista_rj["Riesgo"].apply(lambda v: nivel_riesgo(v)[0])
+        vista_rj["ACWR"] = vista_rj["ACWR"].round(2)
+        cols_tabla = [c for c in ["Jugador","Última sesión","Riesgo","Nivel","ACWR"] if c in vista_rj.columns]
+        vista_rj = vista_rj[cols_tabla].reset_index(drop=True)
+
+        def _color_riesgo(v):
+            try:
+                _, color = nivel_riesgo(float(v))
+                return f"background:{color}33;color:{color};font-weight:800"
+            except Exception:
+                return None
+        def _color_nivel(v):
+            colores = {"BAJO":"#4ade80","MEDIO":"#fbbf24","ALTO":"#ef4444"}
+            c = colores.get(str(v).upper())
+            return f"background:{c}22;color:{c};font-weight:700" if c else None
+
+        if html_table:
+            html_table(vista_rj, custom_colors={"Riesgo":_color_riesgo,"Nivel":_color_nivel},
+                      max_rows=n_show, height=min(60+38*len(vista_rj),460))
+        else:
+            st.dataframe(vista_rj, use_container_width=True, hide_index=True)
+        st.caption(f"Mostrando {len(vista_rj)} de {len(riesgo_jug)} jugadores. Click en el encabezado para ordenar.")
 
         # ── Gráfico de barras de riesgo ──────────────────────────────
         fig = px.bar(vista_rj, x="Jugador", y="Riesgo", template="plotly_dark",
