@@ -32,20 +32,23 @@ st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800;900&display=swap');
 .stApp{background:linear-gradient(135deg,#0c1e3e 0%,#112347 50%,#0c1e3e 100%);color:#e8ecf4;font-family:'Inter',sans-serif;}
-header[data-testid="stHeader"]{background:transparent!important;box-shadow:none!important;height:auto!important;}
+header[data-testid="stHeader"]{background:transparent!important;box-shadow:none!important;overflow:visible!important;}
 #MainMenu{visibility:hidden!important;}
 [data-testid="stToolbar"]{visibility:hidden!important;}
 [data-testid="stDecoration"]{display:none!important;}
 /* Flecha para abrir/cerrar el sidebar: distintas versiones de Streamlit usan
-   distintos data-testid para este control. La ocultábamos sin querer al
-   esconder el header entero -> forzamos que quede SIEMPRE visible y blanca. */
+   distintos data-testid para este control, y a veces queda tapada por el
+   propio layout del header. Posición FIJA en la esquina para que SIEMPRE
+   se pueda ver y tocar, sin depender del contenedor padre. */
 [data-testid="collapsedControl"],[data-testid="stSidebarCollapsedControl"],
 button[kind="header"],[data-testid="baseButton-headerNoPadding"]{
-    visibility:visible!important;display:flex!important;opacity:1!important;z-index:999999!important;
+    visibility:visible!important;display:flex!important;opacity:1!important;
+    position:fixed!important;top:10px!important;left:10px!important;z-index:999999!important;
+    background:rgba(200,16,46,0.85)!important;border-radius:8px!important;padding:6px!important;
 }
 [data-testid="collapsedControl"] svg,[data-testid="stSidebarCollapsedControl"] svg,
 button[kind="header"] svg,[data-testid="baseButton-headerNoPadding"] svg{
-    fill:#ffffff!important;color:#ffffff!important;
+    fill:#ffffff!important;color:#ffffff!important;width:22px!important;height:22px!important;
 }
 section[data-testid="stSidebar"]{background:linear-gradient(180deg,#091528 0%,#0d1e38 100%)!important;border-right:1px solid rgba(200,16,46,0.3)!important;}
 section[data-testid="stSidebar"] *{color:#e8ecf4!important;}
