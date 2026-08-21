@@ -904,24 +904,43 @@ def render_cuerpo_humano(df_jugador, region_col):
     with open(svg_path, "r", encoding="utf-8") as f:
         svg_content = f.read()
 
-    # ── Generar JS para colorear polígonos por id+view+side ──
+    # ── Generar JS para colorear zonas por id+view+side ──
+    # Antes solo buscaba <polygon id="..."> con match EXACTO — si la forma
+    # real es un <path>/<circle> (típico en cabeza, manos, formas redondeadas)
+    # o el id tiene mayúsculas/espacios distintos, no coloreaba nada y
+    # fallaba en silencio. Ahora escanea TODAS las formas con id, compara
+    # de forma flexible (sin importar mayúsculas/espacios) y no exige
+    # data-side si la forma no lo tiene (ej. la cabeza no tiene lado).
     max_svg = max(svg_zonas.values()) if svg_zonas else 1
-    
-    js_coloring = ""
+
+    js_targets = "["
     for (svg_id, view, side), cnt in svg_zonas.items():
         ratio = min(cnt / max_svg, 1.0)
-        if ratio < 0.33:
-            cls = "lesion-low"
-        elif ratio < 0.66:
-            cls = "lesion-mid"
-        else:
-            cls = "lesion-high"
-        # Escapar comillas para JS
-        safe_id = svg_id.replace('"', '\"')
-        js_coloring += f"""
-        document.querySelectorAll('polygon[id="{safe_id}"][data-view="{view}"][data-side="{side}"]').forEach(function(el){{
-            el.classList.add('{cls}');
-        }});"""
+        cls = "lesion-low" if ratio < 0.33 else ("lesion-mid" if ratio < 0.66 else "lesion-high")
+        safe_id = svg_id.replace("\\", "\\\\").replace("'", "\\'")
+        js_targets += f"{{id:'{safe_id}',view:'{view}',side:'{side}',cls:'{cls}'}},"
+    js_targets += "]"
+
+    js_coloring = f"""
+    var _targets = {js_targets};
+    var _norm = function(s) {{ return (s||'').toString().trim().toLowerCase().replace(/\\s+/g,' '); }};
+    var _shapes = document.querySelectorAll('polygon[id], path[id], circle[id], ellipse[id], rect[id], g[id]');
+    _targets.forEach(function(t) {{
+        var tId = _norm(t.id), tView = _norm(t.view), tSide = _norm(t.side);
+        _shapes.forEach(function(el) {{
+            var elId = _norm(el.getAttribute('id'));
+            var elView = _norm(el.getAttribute('data-view'));
+            var elSide = _norm(el.getAttribute('data-side'));
+            var idMatch = (elId === tId) || (elId.indexOf(tId) !== -1) || (tId.indexOf(elId) !== -1 && elId.length > 2);
+            var viewMatch = (elView === '' || elView === tView);
+            var sideMatch = (elSide === '' || elSide === tSide);
+            if (idMatch && viewMatch && sideMatch) {{
+                el.classList.add(t.cls);
+                var kids = el.querySelectorAll('polygon,path,circle,ellipse,rect');
+                kids.forEach(function(k) {{ k.classList.add(t.cls); }});
+            }}
+        }});
+    }});"""
 
     # ── Leyenda ───────────────────────────────────────────────
     leyenda_rows = ""
@@ -952,7 +971,10 @@ def render_cuerpo_humano(df_jugador, region_col):
   body {{ background:#071428; font-family:Inter,sans-serif; padding:10px; }}
   .wrap {{ display:flex; gap:16px; align-items:flex-start; }}
   .svg-box {{ flex:0 0 60%; background:linear-gradient(135deg,#071428,#0d1e3c);
-              border-radius:14px; border:1px solid rgba(26,90,180,0.3); padding:8px; overflow:hidden; }}
+              border-radius:14px; border:1px solid rgba(26,90,180,0.3); padding:8px;
+              overflow:hidden; display:flex; align-items:center; justify-content:center; }}
+  .svg-box svg {{ width:100% !important; height:auto !important; max-height:600px;
+                  display:block; }}
   .ley-box {{ flex:1; padding-top:4px; }}
   .ley-title {{ font-size:10px; color:#60a5fa; font-weight:700; letter-spacing:2px;
                 text-transform:uppercase; margin-bottom:10px;
@@ -983,7 +1005,7 @@ def render_cuerpo_humano(df_jugador, region_col):
 </body>
 </html>"""
 
-    components.html(html_body, height=540, scrolling=False)
+    components.html(html_body, height=620, scrolling=False)
 
 
 def grafico_con_scroll(fig, height=380, max_items=15):
