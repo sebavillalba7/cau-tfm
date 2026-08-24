@@ -874,22 +874,31 @@ def render_cuerpo_humano(df_jugador, region_col):
 
     # ── Calcular zonas afectadas ─────────────────────────────
     zonas_intensidad = {}
-    muscl_col = next((c for c in df_jugador.columns if "muscl" in c.lower() or "sist_m" in c.lower()), None)
-    lado_col  = next((c for c in df_jugador.columns if c.upper() == "LADO"), None)
+    # ANTES: 'muscl' in c.lower() or 'sist_m' in c.lower() podía agarrar la
+    # columna SIST_M-E en vez de MUSCL_ID (cuál gana depende del orden de
+    # columnas en la hoja) -> se intentaba parsear "MUSCULAR"/"OSEA" como si
+    # fuera un nombre de músculo, sin sentido. Ahora exacto.
+    muscl_col = next((c for c in df_jugador.columns if c.strip().upper() == "MUSCL_ID"), None)
+    lado_col  = next((c for c in df_jugador.columns if c.strip().upper() == "LADO"), None)
 
     for _, row in df_jugador.iterrows():
         zona, lado = None, None
-        if muscl_col:
-            zona, lado = parsear_muscl_id(str(row.get(muscl_col, "")))
-        if not zona and region_col and region_col in row.index:
+        # 1) Fuente primaria: REGION (vocabulario controlado, sin ambigüedad)
+        #    + LADO (columna dedicada, la más confiable para el lado).
+        if region_col and region_col in row.index:
             reg = str(row[region_col]).strip().upper()
             zona = REGION_A_ZONA.get(reg)
-            if lado_col and lado_col in row.index:
-                l = str(row[lado_col]).strip().upper()
-                if l in ["DER","DERECHO","R","RIGHT"]:    lado = "der"
-                elif l in ["IZQ","IZQUIERDO","L","LEFT"]: lado = "izq"
-                else: lado = "bilat"
-            else: lado = "bilat"
+        if lado_col and lado_col in row.index:
+            l = str(row[lado_col]).strip().upper()
+            if l in ["DER","DERECHO","R","RIGHT"]:      lado = "der"
+            elif l in ["IZQ","IZQUIERDO","L","LEFT"]:   lado = "izq"
+            elif l in ["BILAT","BILATERAL","AMBOS"]:    lado = "bilat"
+        # 2) Respaldo: si REGION no dio zona (vacía o no reconocida), texto
+        #    libre de MUSCL_ID. También completa el lado si LADO vino vacío.
+        if not zona and muscl_col:
+            zona2, lado2 = parsear_muscl_id(str(row.get(muscl_col, "")))
+            zona = zona2
+            if lado is None: lado = lado2
         if not zona: continue
         for s in zonas_con_lado(zona, lado or "bilat"):
             zonas_intensidad[s] = zonas_intensidad.get(s, 0) + 1
@@ -958,10 +967,17 @@ def render_cuerpo_humano(df_jugador, region_col):
     }};
     var _shapes = document.querySelectorAll('polygon[id], path[id], circle[id], ellipse[id], rect[id], g[id]');
     var _byId = {{}};
+    var _generico = /^(PATH|ELLIPSE|POLYGON|RECT|G)\\d*$/;
     _shapes.forEach(function(el) {{
         var k = _norm(el.getAttribute('id'));
         if (!_byId[k]) _byId[k] = [];
         _byId[k].push(el);
+        // Zona anatómica "real" (no un id auto-generado tipo path23): se
+        // resetea a blanco por default. No depende de tener o no el
+        // atributo title, que el archivo trae inconsistente.
+        if (k && !_generico.test(k)) {{
+            el.classList.add('zona-base');
+        }}
     }});
     _targets.forEach(function(t) {{
         var tId = _norm(t.id);
@@ -1008,15 +1024,20 @@ def render_cuerpo_humano(df_jugador, region_col):
                   display:block; }}
   /* El SVG trae cada región pintada de fábrica (fill inline en el propio
      archivo) — sin esto se ve TODO el cuerpo coloreado sin importar si hay
-     lesión o no. [title] identifica las regiones anatómicas reales (todas
-     las formas nombradas del mapa traen title="NOMBRE ZONA"); se resetean
-     a gris neutro por default y solo las lesionadas se resaltan encima. */
-  .svg-box svg [title] {{ fill:#475569 !important; opacity:0.35 !important;
-                          transition:fill .2s,opacity .2s; }}
-  .svg-box svg [title].lesion-low  {{ fill:#fca5a5 !important; opacity:0.85 !important; }}
-  .svg-box svg [title].lesion-mid  {{ fill:#f87171 !important; opacity:0.9  !important; }}
-  .svg-box svg [title].lesion-high {{ fill:#dc2626 !important; opacity:0.95 !important;
-                                      stroke:#7f1d1d !important; stroke-width:1.2 !important; }}
+     lesión o no. Se resetean a blanco por default (clase .zona-base,
+     agregada por JS a toda forma con id "real" — no generado tipo path23)
+     y solo las lesionadas se resaltan encima. Antes el reset dependía de
+     [title], pero el archivo lo trae inconsistente: algunas formas de un
+     mismo brazo lo tienen y otras no, así que quedaban sin resetear. */
+  .svg-box svg .zona-base {{ fill:#ffffff !important; opacity:0.9 !important;
+                             transition:fill .2s,opacity .2s; }}
+  .svg-box svg .zona-base.lesion-low  {{ fill:#fca5a5 !important; opacity:0.9  !important; }}
+  .svg-box svg .zona-base.lesion-mid  {{ fill:#f87171 !important; opacity:0.92 !important; }}
+  .svg-box svg .zona-base.lesion-high {{ fill:#dc2626 !important; opacity:0.95 !important;
+                                         stroke:#7f1d1d !important; stroke-width:1.2 !important; }}
+  /* Capa de imagen de referencia usada para trazar el dibujo (queda oculta
+     detrás de los vectores) — es la que se ve como fondo blanco/foto. */
+  [data-synoptic-designer-tracing-layer] {{ display:none !important; }}
   .ley-box {{ flex:1; padding-top:4px; }}
   .ley-title {{ font-size:10px; color:#60a5fa; font-weight:700; letter-spacing:2px;
                 text-transform:uppercase; margin-bottom:10px;
@@ -1239,23 +1260,22 @@ def pagina_estadisticas_medicas():
     # ── Fila 2: SIST_M-E (barras verticales) + N° lesiones x región (barras horiz) ──
     st.markdown("---")
 
-    # Columna MUSCL_ID / SIST_M-E
-    sist_col = next((c for c in les_df.columns if any(x in c.upper() for x in ["MUSCL","SIST_M","MUSCUL_ID","MUSCL_ID"])), None)
-    # Si no existe, buscamos columna que describe músculo
-    if not sist_col:
-        sist_col = next((c for c in les_df.columns if any(x in c.lower() for x in ["muscl","sist_m","musculo_id"])), None)
+    # Columna SIST_M-E exacta — antes se buscaba con "muscl" o "sist_m" en
+    # el nombre, lo que podía agarrar MUSCL_ID en vez de SIST_M-E según el
+    # orden de columnas de la hoja (mismo bug que en el mapa corporal).
+    sist_col = ml.get("sist_me")
 
     b1, b2 = st.columns(2)
 
     with b1:
-        st.markdown('<div class="subsec">N° lesiones x SIST M-E</div>',unsafe_allow_html=True)
+        st.markdown('<div class="subsec">N° lesiones x SIST M-E (Todas menos oseas)</div>',unsafe_allow_html=True)
         if sist_col:
             import re as _re
             def base_musculo(v):
                 return _re.sub(r'\s+(DER|IZQ|BILAT)$', '', str(v).strip().upper())
 
             les_sist = les_df[sist_col].dropna().astype(str)
-            les_sist = les_sist[~les_sist.str.upper().isin(["NO-MUSC","NO MUSC","NA","—","NAN"])]
+            les_sist = les_sist[~les_sist.str.upper().isin(["NO-MUSC","NO MUSC","NA","—","NAN","OSEA","ÓSEA"])]
             les_sist_base = les_sist.apply(base_musculo)
             vc_s = les_sist_base.value_counts().reset_index()
             vc_s.columns = ["Músculo","N°"]
@@ -1275,7 +1295,7 @@ def pagina_estadisticas_medicas():
             st.plotly_chart(fig_s, use_container_width=True)
             st.markdown('</div>', unsafe_allow_html=True)
         else:
-            st.info("No se encontró la columna MUSCL_ID / SIST M-E en los datos.")
+            st.info("No se encontró la columna SIST_M-E en los datos.")
 
     with b2:
         if region_col:
@@ -1336,6 +1356,8 @@ def _mapear_lesiones(df):
         "lesion": _exact(["LESION","LESIÓN"]),
         "region": _exact(["REGION","REGIÓN"]),
         "muscl_id": _exact(["MUSCL_ID"]),
+        "lado": _exact(["LADO"]),
+        "sist_me": _exact(["SIST_M-E","SIST M-E","SIST_ME","SISTEMA M-E","SISTEMA_M-E"]),
         "dxt": _exact(["DAY_OFF_RTT","DAY_OFF_DXT"]),
     }
 
