@@ -723,21 +723,33 @@ MUSCULO_A_ZONA = {
     "TIBIA":                     "pierna",
     "PERONEOS":                  "pierna",
     "TENDON PERONEO":            "pierna",
-    "AQUILES":                   "tobillo",
+    "AQUILES":                   "aquiles",   # tiene forma propia distinta de "tobillo" en el SVG
     "LIGAMENTO EXTERNO":         "tobillo",
     "PIE":                       "pie",
     "SESAMOIDEO":                "pie",
+    "FASCITIS PLANTAR":          "talon",
+    "TALON":                     "talon",
     "PUBIS":                     "pubis",
     "TENDON DEL PUBIS":          "pubis",
     "PERINE":                    "pubis",
     "RECTO ABDOMEN":             "abdomen",
     "LUMBARES":                  "lumbar",
+    "LUMBAR":                    "lumbar",
     "SUB ESCAPULAR":             "hombro",
     "HOMBRO":                    "hombro",
-    "MUÑECA":                    "antebrazo",
-    "PARPADO":                   "cabeza",
-    "MAXILAR":                   "cabeza",
-    "NARIZ":                     "cabeza",
+    "PECTORAL":                  "pectoral",
+    "CUELLO":                    "cuello",
+    "BICEPS":                    "brazo",
+    "TRICEPS":                   "brazo",
+    "BRAZO":                     "brazo",
+    "CODO":                      "codo",
+    "EPICONDILITIS":             "codo",
+    "MUÑECA":                    "muneca",    # tiene forma propia distinta de "antebrazo" en el SVG
+    "MANO":                      "mano",
+    "DEDOS":                     "mano",
+    "PARPADO":                   "cara",
+    "MAXILAR":                   "cara",
+    "NARIZ":                     "cara",
     "CABEZA":                    "cabeza",
 }
 
@@ -749,18 +761,47 @@ REGION_A_ZONA = {
     "RODILLA":         "rodilla",
     "PIERNA":          "pierna",
     "TOBILLO":         "tobillo",
-    "TOBILLO Y PIE":   "tobillo",
+    "TOBILLO Y PIE":   "tobillo_pie",  # forma compuesta propia en el SVG
     "PIE":             "pie",
+    "TALON":           "talon",
     "PUBIS":           "pubis",
     "ABDOMEN":         "abdomen",
     "LUMBAR":          "lumbar",
     "GLUTEO":          "gluteo",
     "HOMBRO":          "hombro",
+    "PECTORAL":        "pectoral",
+    "CUELLO":          "cuello",
+    "BRAZO":           "brazo",
+    "CODO":            "codo",
+    "MUÑECA":          "muneca",
+    "MANO":            "mano",
     "CADERA":          "cadera",
     "CABEZA":          "cabeza",
-    "CARA":            "cabeza",
+    "CARA":            "cara",
     "ANTE BRAZO":      "antebrazo",
+    "AQUILES":         "aquiles",
 }
+
+# zona_base → etiqueta literal usada en los ids del SVG (mapa corporal).
+# Con lado (der/izq) se arma como f"{ETIQUETA} DER"/"IZQ"; sin lado
+# (zonas centrales del cuerpo) se usa tal cual.
+ZONA_A_ETIQUETA = {
+    "cabeza": "CABEZA", "cara": "CARA", "cuello": "CUELLO",
+    "hombro": "HOMBRO", "pectoral": "PECTORAL", "brazo": "BRAZO",
+    "codo": "CODO", "antebrazo": "ANTE BRAZO", "muneca": "MUNECA", "mano": "MANO",
+    "abdomen": "ABDOMEN", "pubis": "PUBIS", "lumbar": "LUMBAR",
+    "gluteo": "GLUTEO", "cadera": "CADERA",
+    "muslo_ant": "MUSLO ANT", "muslo_post": "MUSLO POST",
+    "muslo_int": "MUSLO INT", "muslo_ext": "MUSLO EXT",
+    "rodilla": "RODILLA", "pierna": "GEMELOS",
+    "tobillo": "TOBILLO", "tobillo_pie": "TOBILLO Y PIE",
+    "aquiles": "AQUILES", "pie": "PIE", "talon": "TALON",
+}
+# Excepción: ABDOMEN con lado usa "RECTO ABDOMEN DER/IZQ" (forma distinta a
+# la bilateral "ABDOMEN" sola), porque el SVG las trae como formas separadas.
+ZONA_ETIQUETA_CON_LADO = {"abdomen": "RECTO ABDOMEN"}
+# Zonas sin lado (bilaterales / centrales): no se les agrega DER/IZQ.
+ZONAS_BILATERALES = {"cabeza", "cara", "cuello", "abdomen", "pubis", "lumbar"}
 
 # Coordenadas (x%, y%) sobre la imagen hb.png (400x350)
 # Frontal: 0-50% del ancho | Posterior: 50-100% del ancho
@@ -818,8 +859,12 @@ def parsear_muscl_id(muscl_id: str) -> tuple:
 
 def zonas_con_lado(zona_base: str, lado: str) -> list:
     if not zona_base: return []
+    if zona_base in ZONAS_BILATERALES:
+        return [zona_base]
     if lado == "der":   return [f"{zona_base}_der"]
     if lado == "izq":   return [f"{zona_base}_izq"]
+    if zona_base == "abdomen":
+        return ["abdomen"]  # sin lado detectado -> forma bilateral "ABDOMEN"
     return [f"{zona_base}_der", f"{zona_base}_izq"]
 
 def render_cuerpo_humano(df_jugador, region_col):
@@ -849,51 +894,31 @@ def render_cuerpo_humano(df_jugador, region_col):
         for s in zonas_con_lado(zona, lado or "bilat"):
             zonas_intensidad[s] = zonas_intensidad.get(s, 0) + 1
 
-    # ── Mapeo zona_lado → (svg_id, view, side) ───────────────
-    # view: front/back | side: der/izq (perspectiva del cuerpo)
-    ZONA_SVG_MAP = {
-        # FRONTAL
-        "muslo_ant_der":  ("Leg Upper",  "front", "der"),
-        "muslo_ant_izq":  ("Leg Upper",  "front", "izq"),
-        "muslo_int_der":  ("Leg Upper",  "front", "der"),
-        "muslo_int_izq":  ("Leg Upper",  "front", "izq"),
-        "muslo_ext_der":  ("Leg Upper",  "front", "der"),
-        "muslo_ext_izq":  ("Leg Upper",  "front", "izq"),
-        "rodilla_der":    ("Knee s ",    "front", "izq"),  # ojo: en SVG frontal rodilla DER está en lado izq imagen
-        "rodilla_izq":    ("Knee s ",    "front", "der"),  # y viceversa — ajustado por centroide
-        "pierna_der":     ("Leg Lower",  "front", "der"),
-        "pierna_izq":     ("Leg Lower",  "front", "izq"),
-        "tobillo_der":    ("Ankle",      "front", "der"),
-        "tobillo_izq":    ("Ankle",      "front", "izq"),
-        "pie_der":        ("Foot",       "front", "der"),
-        "pie_izq":        ("Foot",       "front", "izq"),
-        "cadera_der":     ("Hip",        "front", "der"),
-        "cadera_izq":     ("Hip",        "front", "izq"),
-        "abdomen":        ("Abdomen",    "front", "der"),
-        "pubis":          ("Abdomen",    "front", "der"),
-        "hombro_der":     ("Shoulder s", "front", "der"),
-        "hombro_izq":     ("Shoulder s", "front", "izq"),
-        "antebrazo_der":  ("Arm Lower",  "front", "der"),
-        "antebrazo_izq":  ("Arm Lower",  "front", "izq"),
-        "cabeza":         ("Head Soft Tissue", "front", "der"),
-        # POSTERIOR
-        "muslo_post_der": ("Leg Upper",  "back",  "der"),
-        "muslo_post_izq": ("Leg Upper",  "back",  "izq"),
-        "gluteo_der":     ("Buttocks",   "back",  "der"),
-        "gluteo_izq":     ("Buttocks",   "back",  "izq"),
-        "lumbar":         ("Back Lower", "back",  "der"),
-        "pierna_post_der":("Leg Lower",  "back",  "der"),
-        "pierna_post_izq":("Leg Lower",  "back",  "izq"),
-    }
+    # ── zona_lado (ej. "gluteo_izq", "cabeza") → id de forma en el SVG ──
+    # (ej. "GLUTEO IZQ", "CABEZA"). Antes había una tabla intermedia con
+    # nombres en inglés ("Buttocks", "Leg Upper"...) que asumía que el SVG
+    # tenía atributos data-view/data-side separados — tu SVG real no los
+    # tiene, así que se generaba cruce de lados. Ahora se arma el id
+    # directamente en la misma convención que ya usa tu archivo.
+    def _target_id_de_zona(zona_lado):
+        if zona_lado.endswith("_der"):
+            zona_base, lado = zona_lado[:-4], "DER"
+        elif zona_lado.endswith("_izq"):
+            zona_base, lado = zona_lado[:-4], "IZQ"
+        else:
+            zona_base, lado = zona_lado, None
+        if lado and zona_base in ZONA_ETIQUETA_CON_LADO:
+            return f"{ZONA_ETIQUETA_CON_LADO[zona_base]} {lado}"
+        etiqueta = ZONA_A_ETIQUETA.get(zona_base)
+        if not etiqueta:
+            return None
+        return f"{etiqueta} {lado}" if lado else etiqueta
 
-    # Acumular por (svg_id, view, side)
     svg_zonas = {}
-    max_v = max(zonas_intensidad.values()) if zonas_intensidad else 1
     for zona, cnt in zonas_intensidad.items():
-        mapping = ZONA_SVG_MAP.get(zona)
-        if mapping:
-            key = mapping  # (id, view, side)
-            svg_zonas[key] = svg_zonas.get(key, 0) + cnt
+        target = _target_id_de_zona(zona)
+        if target:
+            svg_zonas[target] = svg_zonas.get(target, 0) + cnt
 
     # ── Cargar SVG ────────────────────────────────────────────
     svg_path = ASSETS / "body_map.svg"
@@ -904,41 +929,47 @@ def render_cuerpo_humano(df_jugador, region_col):
     with open(svg_path, "r", encoding="utf-8") as f:
         svg_content = f.read()
 
-    # ── Generar JS para colorear zonas por id+view+side ──
-    # Antes solo buscaba <polygon id="..."> con match EXACTO — si la forma
-    # real es un <path>/<circle> (típico en cabeza, manos, formas redondeadas)
-    # o el id tiene mayúsculas/espacios distintos, no coloreaba nada y
-    # fallaba en silencio. Ahora escanea TODAS las formas con id, compara
-    # de forma flexible (sin importar mayúsculas/espacios) y no exige
-    # data-side si la forma no lo tiene (ej. la cabeza no tiene lado).
+    # ── Generar JS para colorear zonas por id ──────────────────
+    # Match EXACTO (normalizado: mayúsculas, _x20_/guion bajo → espacio,
+    # espacios colapsados) contra el id real de cada forma del SVG. Con la
+    # convención ya conocida no hace falta match difuso — el difuso fue lo
+    # que causaba que "GLUTEO IZQ" coloreara los dos lados.
     max_svg = max(svg_zonas.values()) if svg_zonas else 1
 
     js_targets = "["
-    for (svg_id, view, side), cnt in svg_zonas.items():
+    for target_id, cnt in svg_zonas.items():
         ratio = min(cnt / max_svg, 1.0)
         cls = "lesion-low" if ratio < 0.33 else ("lesion-mid" if ratio < 0.66 else "lesion-high")
-        safe_id = svg_id.replace("\\", "\\\\").replace("'", "\\'")
-        js_targets += f"{{id:'{safe_id}',view:'{view}',side:'{side}',cls:'{cls}'}},"
+        safe_id = target_id.replace("\\", "\\\\").replace("'", "\\'")
+        js_targets += f"{{id:'{safe_id}',cls:'{cls}'}},"
     js_targets += "]"
 
     js_coloring = f"""
     var _targets = {js_targets};
-    var _norm = function(s) {{ return (s||'').toString().trim().toLowerCase().replace(/\\s+/g,' '); }};
+    // Alias conocidos por inconsistencias típicas de nomenclatura en el SVG
+    // (plural/singular, typos). Se agregan acá para no depender de que el
+    // archivo esté prolijo.
+    var _alias = {{'LUMBARES':'LUMBAR','HOMRBO':'HOMBRO'}};
+    var _norm = function(s) {{
+        s = (s||'').toString().replace(/_x20_/g,' ').replace(/_/g,' ');
+        s = s.trim().toUpperCase().replace(/\\s+/g,' ');
+        Object.keys(_alias).forEach(function(k) {{ s = s.split(k).join(_alias[k]); }});
+        return s;
+    }};
     var _shapes = document.querySelectorAll('polygon[id], path[id], circle[id], ellipse[id], rect[id], g[id]');
+    var _byId = {{}};
+    _shapes.forEach(function(el) {{
+        var k = _norm(el.getAttribute('id'));
+        if (!_byId[k]) _byId[k] = [];
+        _byId[k].push(el);
+    }});
     _targets.forEach(function(t) {{
-        var tId = _norm(t.id), tView = _norm(t.view), tSide = _norm(t.side);
-        _shapes.forEach(function(el) {{
-            var elId = _norm(el.getAttribute('id'));
-            var elView = _norm(el.getAttribute('data-view'));
-            var elSide = _norm(el.getAttribute('data-side'));
-            var idMatch = (elId === tId) || (elId.indexOf(tId) !== -1) || (tId.indexOf(elId) !== -1 && elId.length > 2);
-            var viewMatch = (elView === '' || elView === tView);
-            var sideMatch = (elSide === '' || elSide === tSide);
-            if (idMatch && viewMatch && sideMatch) {{
-                el.classList.add(t.cls);
-                var kids = el.querySelectorAll('polygon,path,circle,ellipse,rect');
-                kids.forEach(function(k) {{ k.classList.add(t.cls); }});
-            }}
+        var tId = _norm(t.id);
+        var els = _byId[tId] || [];
+        els.forEach(function(el) {{
+            el.classList.add(t.cls);
+            var kids = el.querySelectorAll('polygon,path,circle,ellipse,rect');
+            kids.forEach(function(k) {{ k.classList.add(t.cls); }});
         }});
     }});"""
 
