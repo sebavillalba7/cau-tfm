@@ -1006,6 +1006,17 @@ def render_cuerpo_humano(df_jugador, region_col):
               overflow:hidden; display:flex; align-items:center; justify-content:center; }}
   .svg-box svg {{ width:100% !important; height:auto !important; max-height:600px;
                   display:block; }}
+  /* El SVG trae cada región pintada de fábrica (fill inline en el propio
+     archivo) — sin esto se ve TODO el cuerpo coloreado sin importar si hay
+     lesión o no. [title] identifica las regiones anatómicas reales (todas
+     las formas nombradas del mapa traen title="NOMBRE ZONA"); se resetean
+     a gris neutro por default y solo las lesionadas se resaltan encima. */
+  .svg-box svg [title] {{ fill:#475569 !important; opacity:0.35 !important;
+                          transition:fill .2s,opacity .2s; }}
+  .svg-box svg [title].lesion-low  {{ fill:#fca5a5 !important; opacity:0.85 !important; }}
+  .svg-box svg [title].lesion-mid  {{ fill:#f87171 !important; opacity:0.9  !important; }}
+  .svg-box svg [title].lesion-high {{ fill:#dc2626 !important; opacity:0.95 !important;
+                                      stroke:#7f1d1d !important; stroke-width:1.2 !important; }}
   .ley-box {{ flex:1; padding-top:4px; }}
   .ley-title {{ font-size:10px; color:#60a5fa; font-weight:700; letter-spacing:2px;
                 text-transform:uppercase; margin-bottom:10px;
