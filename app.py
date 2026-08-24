@@ -1022,10 +1022,10 @@ def render_cuerpo_humano(df_jugador, region_col):
               overflow:hidden; display:flex; align-items:center; justify-content:center; }}
   .svg-box svg {{ width:100% !important; height:auto !important; max-height:600px;
                   display:block; }}
-  /* Se deja la imagen ORIGINAL intacta (fondo y colores de fábrica, sin
-     tocar nada) — solo se resalta encima la(s) zona(s) realmente
-     lesionada(s), con borde rojo grueso para que se note incluso si el
-     color de fábrica de esa forma ya era oscuro o parecido al rojo. */
+  /* Fondo e imagen ORIGINAL intactos. Las zonas NO lesionadas se resetean
+     a blanco sólido (piden que se vea "todo blanco menos lo lesionado").
+     La lesionada se resalta en rojo con borde grueso encima. */
+  .svg-box svg .zona-base {{ fill:#ffffff !important; opacity:1 !important; }}
   .svg-box svg .zona-base.lesion-low  {{ fill:#fca5a5 !important; opacity:1 !important;
                                          stroke:#7f1d1d !important; stroke-width:1.5 !important; }}
   .svg-box svg .zona-base.lesion-mid  {{ fill:#f87171 !important; opacity:1 !important;
