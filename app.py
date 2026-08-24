@@ -1024,15 +1024,19 @@ def render_cuerpo_humano(df_jugador, region_col):
                   display:block; }}
   /* El SVG trae cada región pintada de fábrica (fill inline en el propio
      archivo) — sin esto se ve TODO el cuerpo coloreado sin importar si hay
-     lesión o no. Se resetean a blanco por default (clase .zona-base,
+     lesión o no. Se resetean a un tono sutil por default (clase .zona-base,
      agregada por JS a toda forma con id "real" — no generado tipo path23)
-     y solo las lesionadas se resaltan encima. Antes el reset dependía de
-     [title], pero el archivo lo trae inconsistente: algunas formas de un
-     mismo brazo lo tienen y otras no, así que quedaban sin resetear. */
-  .svg-box svg .zona-base {{ fill:#ffffff !important; opacity:0.9 !important;
+     y solo las lesionadas se resaltan encima. Blanco sólido + el borde
+     negro original (casi invisible sobre fondo oscuro) quedaba tipo
+     "robot" con bloques desconectados — ahora es un tono azulado sutil
+     con borde celeste, más parecido a un boceto anatómico limpio. */
+  .svg-box svg .zona-base {{ fill:#1e3a5f !important; opacity:0.55 !important;
+                             stroke:#60a5fa !important; stroke-width:0.6 !important;
                              transition:fill .2s,opacity .2s; }}
-  .svg-box svg .zona-base.lesion-low  {{ fill:#fca5a5 !important; opacity:0.9  !important; }}
-  .svg-box svg .zona-base.lesion-mid  {{ fill:#f87171 !important; opacity:0.92 !important; }}
+  .svg-box svg .zona-base.lesion-low  {{ fill:#fca5a5 !important; opacity:0.9  !important;
+                                         stroke:#7f1d1d !important; stroke-width:0.8 !important; }}
+  .svg-box svg .zona-base.lesion-mid  {{ fill:#f87171 !important; opacity:0.92 !important;
+                                         stroke:#7f1d1d !important; stroke-width:0.8 !important; }}
   .svg-box svg .zona-base.lesion-high {{ fill:#dc2626 !important; opacity:0.95 !important;
                                          stroke:#7f1d1d !important; stroke-width:1.2 !important; }}
   /* Capa de imagen de referencia usada para trazar el dibujo (queda oculta
