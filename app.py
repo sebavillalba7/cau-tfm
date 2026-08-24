@@ -1022,18 +1022,16 @@ def render_cuerpo_humano(df_jugador, region_col):
               overflow:hidden; display:flex; align-items:center; justify-content:center; }}
   .svg-box svg {{ width:100% !important; height:auto !important; max-height:600px;
                   display:block; }}
-  /* El SVG trae cada región pintada de fábrica (fill inline en el propio
-     archivo). Se deja el color NATIVO del dibujo (no se pisa el fill),
-     solo se le baja la opacidad para que no compita visualmente con la
-     lesión real — que se resalta fuerte en rojo por encima. */
-  .svg-box svg .zona-base {{ opacity:0.4 !important; transition:opacity .2s; }}
-  .svg-box svg .zona-base.lesion-low  {{ fill:#fca5a5 !important; opacity:0.9  !important; }}
-  .svg-box svg .zona-base.lesion-mid  {{ fill:#f87171 !important; opacity:0.92 !important; }}
-  .svg-box svg .zona-base.lesion-high {{ fill:#dc2626 !important; opacity:0.95 !important;
-                                         stroke:#7f1d1d !important; stroke-width:1.2 !important; }}
-  /* Capa de imagen de referencia usada para trazar el dibujo (queda oculta
-     detrás de los vectores) — es la que se ve como fondo blanco/foto. */
-  [data-synoptic-designer-tracing-layer] {{ display:none !important; }}
+  /* Se deja la imagen ORIGINAL intacta (fondo y colores de fábrica, sin
+     tocar nada) — solo se resalta encima la(s) zona(s) realmente
+     lesionada(s), con borde rojo grueso para que se note incluso si el
+     color de fábrica de esa forma ya era oscuro o parecido al rojo. */
+  .svg-box svg .zona-base.lesion-low  {{ fill:#fca5a5 !important; opacity:1 !important;
+                                         stroke:#7f1d1d !important; stroke-width:1.5 !important; }}
+  .svg-box svg .zona-base.lesion-mid  {{ fill:#f87171 !important; opacity:1 !important;
+                                         stroke:#7f1d1d !important; stroke-width:1.5 !important; }}
+  .svg-box svg .zona-base.lesion-high {{ fill:#dc2626 !important; opacity:1 !important;
+                                         stroke:#7f1d1d !important; stroke-width:1.8 !important; }}
   .ley-box {{ flex:1; padding-top:4px; }}
   .ley-title {{ font-size:10px; color:#60a5fa; font-weight:700; letter-spacing:2px;
                 text-transform:uppercase; margin-bottom:10px;
