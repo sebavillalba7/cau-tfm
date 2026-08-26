@@ -801,7 +801,7 @@ ZONA_A_ETIQUETA = {
 # la bilateral "ABDOMEN" sola), porque el SVG las trae como formas separadas.
 ZONA_ETIQUETA_CON_LADO = {"abdomen": "RECTO ABDOMEN"}
 # Zonas sin lado (bilaterales / centrales): no se les agrega DER/IZQ.
-ZONAS_BILATERALES = {"cabeza", "cara", "cuello", "abdomen", "pubis", "lumbar"}
+ZONAS_BILATERALES = {"cabeza", "cara", "cuello", "pubis", "lumbar"}
 
 # Coordenadas (x%, y%) sobre la imagen hb.png (400x350)
 # Frontal: 0-50% del ancho | Posterior: 50-100% del ancho
@@ -864,7 +864,11 @@ def zonas_con_lado(zona_base: str, lado: str) -> list:
     if lado == "der":   return [f"{zona_base}_der"]
     if lado == "izq":   return [f"{zona_base}_izq"]
     if zona_base == "abdomen":
-        return ["abdomen"]  # sin lado detectado -> forma bilateral "ABDOMEN"
+        # Sin lado detectado (lesión de abdomen genérica, sin especificar
+        # der/izq) -> se marcan las DOS formas ABDOMEN_DER + ABDOMEN_IZQ,
+        # porque el SVG no puede tener dos elementos con el mismo id
+        # "ABDOMEN" y las separaste en dos formas por lado.
+        return ["abdomen_bilat_der", "abdomen_bilat_izq"]
     return [f"{zona_base}_der", f"{zona_base}_izq"]
 
 def render_cuerpo_humano(df_jugador, region_col):
@@ -916,6 +920,8 @@ def render_cuerpo_humano(df_jugador, region_col):
             zona_base, lado = zona_lado[:-4], "IZQ"
         else:
             zona_base, lado = zona_lado, None
+        if zona_base == "abdomen_bilat":
+            return f"ABDOMEN {lado}"
         if lado and zona_base in ZONA_ETIQUETA_CON_LADO:
             return f"{ZONA_ETIQUETA_CON_LADO[zona_base]} {lado}"
         etiqueta = ZONA_A_ETIQUETA.get(zona_base)
