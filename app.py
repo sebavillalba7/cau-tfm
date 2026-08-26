@@ -92,51 +92,15 @@ input:focus{border-color:#c8102e!important;color:#ffffff!important;}
 # ══════════════════════════════════════════════════════════════
 # ÁREAS Y USUARIOS
 # ══════════════════════════════════════════════════════════════
-AREAS={"Médica":{"icon":"🏥","secciones":["home","historial","estadisticas_medicas","evaluaciones","riesgo_lesion","nutricion","resumen_individual"]},"Rendimiento":{"icon":"⚡","secciones":["home","historial","evaluaciones","riesgo_lesion","demandas_fisicas","control_partidos","nutricion","resumen_individual"]},"Secretaría Técnica":{"icon":"📋","secciones":["home","historial","estadisticas_medicas","evaluaciones","riesgo_lesion","demandas_fisicas","control_partidos","nutricion","resumen_individual"]},"Administración":{"icon":"🔧","secciones":["home","historial","estadisticas_medicas","evaluaciones","riesgo_lesion","demandas_fisicas","control_partidos","nutricion","resumen_individual","admin"]},"Scout":{"icon":"🔍","secciones":["home","historial","control_partidos"]}}
-def _hash(p): return hashlib.sha256(p.encode()).hexdigest()
-USUARIOS_BASE={"dr.garcia":{"nombre":"Dr. García","area":"Médica","rol":"Médico","email":"dr.garcia@cauunion.com","pwd":_hash("medica123"),"activo":True},"dr.lopez":{"nombre":"Dr. López","area":"Médica","rol":"Médico","email":"dr.lopez@cauunion.com","pwd":_hash("medica123"),"activo":True},"dr.martinez":{"nombre":"Dr. Martínez","area":"Médica","rol":"Médico","email":"dr.martinez@cauunion.com","pwd":_hash("medica123"),"activo":True},"kine.perez":{"nombre":"Lic. Pérez","area":"Médica","rol":"Kinesiólogo","email":"kine.perez@cauunion.com","pwd":_hash("kine123"),"activo":True},"kine.gomez":{"nombre":"Lic. Gómez","area":"Médica","rol":"Kinesiólogo","email":"kine.gomez@cauunion.com","pwd":_hash("kine123"),"activo":True},"kine.diaz":{"nombre":"Lic. Díaz","area":"Médica","rol":"Kinesiólogo","email":"kine.diaz@cauunion.com","pwd":_hash("kine123"),"activo":True},"kine.silva":{"nombre":"Lic. Silva","area":"Médica","rol":"Kinesiólogo","email":"kine.silva@cauunion.com","pwd":_hash("kine123"),"activo":True},"kine.torres":{"nombre":"Lic. Torres","area":"Médica","rol":"Kinesiólogo","email":"kine.torres@cauunion.com","pwd":_hash("kine123"),"activo":True},"pf.rodriguez":{"nombre":"Prof. Rodríguez","area":"Rendimiento","rol":"PF","email":"pf.rodriguez@cauunion.com","pwd":_hash("rend123"),"activo":True},"pf.fernandez":{"nombre":"Prof. Fernández","area":"Rendimiento","rol":"PF","email":"pf.fernandez@cauunion.com","pwd":_hash("rend123"),"activo":True},"pf.sanchez":{"nombre":"Prof. Sánchez","area":"Rendimiento","rol":"PF","email":"pf.sanchez@cauunion.com","pwd":_hash("rend123"),"activo":True},"nutri.ruiz":{"nombre":"Lic. Ruiz","area":"Rendimiento","rol":"Nutricionista","email":"nutri.ruiz@cauunion.com","pwd":_hash("rend123"),"activo":True},"nutri.mora":{"nombre":"Lic. Mora","area":"Rendimiento","rol":"Nutricionista","email":"nutri.mora@cauunion.com","pwd":_hash("rend123"),"activo":True},"nutri.vega":{"nombre":"Lic. Vega","area":"Rendimiento","rol":"Nutricionista","email":"nutri.vega@cauunion.com","pwd":_hash("rend123"),"activo":True},"ct.ramirez":{"nombre":"Prof. Ramírez","area":"Rendimiento","rol":"Cuerpo Técnico","email":"ct.ramirez@cauunion.com","pwd":_hash("rend123"),"activo":True},"ct.jimenez":{"nombre":"Prof. Jiménez","area":"Rendimiento","rol":"Cuerpo Técnico","email":"ct.jimenez@cauunion.com","pwd":_hash("rend123"),"activo":True},"ct.herrera":{"nombre":"Prof. Herrera","area":"Rendimiento","rol":"Cuerpo Técnico","email":"ct.herrera@cauunion.com","pwd":_hash("rend123"),"activo":True},"st.castro":{"nombre":"Lic. Castro","area":"Secretaría Técnica","rol":"Sec. Técnico","email":"st.castro@cauunion.com","pwd":_hash("sec123"),"activo":True},"st.vargas":{"nombre":"Lic. Vargas","area":"Secretaría Técnica","rol":"Sec. Técnico","email":"st.vargas@cauunion.com","pwd":_hash("sec123"),"activo":True},"st.medina":{"nombre":"Lic. Medina","area":"Secretaría Técnica","rol":"Sec. Técnico","email":"st.medina@cauunion.com","pwd":_hash("sec123"),"activo":True},"st.guerrero":{"nombre":"Lic. Guerrero","area":"Secretaría Técnica","rol":"Sec. Técnico","email":"st.guerrero@cauunion.com","pwd":_hash("sec123"),"activo":True},"admin":{"nombre":"Administrador","area":"Administración","rol":"Admin","email":"futbolprofesionalcau@gmail.com","pwd":_hash("admin123"),"activo":True},"scout.blanco":{"nombre":"Lic. Blanco","area":"Scout","rol":"Scout","email":"scout.blanco@cauunion.com","pwd":_hash("scout123"),"activo":True},"scout.acosta":{"nombre":"Lic. Acosta","area":"Scout","rol":"Scout","email":"scout.acosta@cauunion.com","pwd":_hash("scout123"),"activo":True},"scout.rios":{"nombre":"Lic. Ríos","area":"Scout","rol":"Scout","email":"scout.rios@cauunion.com","pwd":_hash("scout123"),"activo":True}}
+# ══════════════════════════════════════════════════════════════
+# BACKEND — usuarios y datos centralizados (backend/users.py,
+# backend/data_loader.py). El frontend (este archivo) solo consume.
+# ══════════════════════════════════════════════════════════════
+from backend.users import AREAS, USUARIOS_BASE, verificar_login, tiene_acceso, usuarios_por_area, todos_los_usuarios, hash_password
+from backend.data_loader import SHEETS, cargar_sheet
 
 for k,v in [("logged",False),("usuario",None),("pagina","home"),("usuarios_extra",{}),("usuarios_desactivados",set())]:
     if k not in st.session_state: st.session_state[k]=v
-
-def todos_los_usuarios():
-    u={}
-    for k,d in USUARIOS_BASE.items(): u[k]={**d,"activo":k not in st.session_state.usuarios_desactivados and d["activo"],"tipo":"base"}
-    for k,d in st.session_state.usuarios_extra.items():
-        if d.get("aprobado"): u[k]={**d,"activo":k not in st.session_state.usuarios_desactivados and d.get("activo",True),"tipo":"extra"}
-    return u
-
-def verificar_login(username,password):
-    u=todos_los_usuarios().get(username.lower().strip())
-    if u and u["activo"] and u["pwd"]==_hash(password): return u
-    return None
-def tiene_acceso(u,s): return s in AREAS.get(u.get("area",""),{}).get("secciones",[])
-def usuarios_por_area(area): return [k for k,d in todos_los_usuarios().items() if d["area"]==area and d["activo"]]
-
-# ══════════════════════════════════════════════════════════════
-# SHEETS
-# ══════════════════════════════════════════════════════════════
-SHEETS={"historial":"https://docs.google.com/spreadsheets/d/1Ppy3Mkz3ojqlcGAcxhNlqnGy5o2GmBHmdL9IZdRh9b0/edit?gid=0","lesiones":"https://docs.google.com/spreadsheets/d/1irSkXB8V_D_jZurEGUA9JMkLpE3e0_qad16_orjHDi8/edit?gid=0","cmj":"https://docs.google.com/spreadsheets/d/1VQLX1R1M0IW8j_TPXbVE8y5qaOA8-2qpj8cL-eGA1VY/edit?gid=1188054203","cmj1pp":"https://docs.google.com/spreadsheets/d/16ugXQ5hEnMa9bh_Ma1IDDaPq6gNq4QVPTRwQyVnz3oc/edit?gid=305963248","nordico":"https://docs.google.com/spreadsheets/d/1fhFajl9ckPYikfIKdBHTORcqQj0802JoNQ8-B3wEJWU/edit?gid=1994839095","vbt":"https://docs.google.com/spreadsheets/d/1NjVz_ivHKRrtai18ogjMQuQA6EYh3Q-WLDiNOErYO-Q/edit?gid=0","gps":"https://docs.google.com/spreadsheets/d/1W3hUX8zTPYXzDUSmdW7Nj2fXbEKlp1E2Us7kwNBhR6c/edit?gid=0","partidos":"https://docs.google.com/spreadsheets/d/17EiRiX-Tjlor0SfZvz-Wzfohz07calbA_26DKd4XL5g/edit?gid=2140450866","nutricion":"https://docs.google.com/spreadsheets/d/1tUsVAxfdeNbwGgAhJ865E3Fgf4x1TENcbTgt1ROAG2s/edit?gid=738328335"}
-
-def gsheet_csv(url):
-    sid=re.search(r"/d/([^/]+)",url).group(1)
-    m=re.search(r"gid=(\d+)",url)
-    return f"https://docs.google.com/spreadsheets/d/{sid}/export?format=csv&gid={m.group(1) if m else '0'}"
-
-@st.cache_data(ttl=300,show_spinner=False)
-def cargar_sheet(key):
-    try:
-        df=pd.read_csv(gsheet_csv(SHEETS[key]),low_memory=False)
-        df.columns=df.columns.astype(str).str.strip()
-        df=df.replace({"None":pd.NA,"nan":pd.NA,"":pd.NA,"#N/A":pd.NA,"N/A":pd.NA})
-        fecha_cols=[c for c in df.columns if ("fecha" in c.lower() or "date" in c.lower()) and "_" not in c.lower()]
-        if fecha_cols:
-            df["_fecha"]=pd.to_datetime(df[fecha_cols[0]],dayfirst=True,errors="coerce")
-            df["AÑO"]=df["_fecha"].dt.year.astype("Int64")
-        elif "AÑO" in df.columns:
-            df["AÑO"]=pd.to_numeric(df["AÑO"],errors="coerce").astype("Int64")
-        return df
-    except Exception: return pd.DataFrame()
 
 def to_num(s): return pd.to_numeric(str(s).replace(",","."),errors="coerce")
 def to_num_col(series): return pd.to_numeric(series.astype(str).str.replace(",","."),errors="coerce")
@@ -461,7 +425,7 @@ def pagina_login():
             elif " " in ru: st.error("El usuario no puede tener espacios.")
             elif ru.lower() in USUARIOS_BASE or ru.lower() in st.session_state.usuarios_extra: st.error("Ese usuario ya existe.")
             else:
-                st.session_state.usuarios_extra[ru.lower()]={"nombre":rn,"area":ra,"rol":rr,"email":re_,"pwd":_hash(rp),"activo":False,"aprobado":False}
+                st.session_state.usuarios_extra[ru.lower()]={"nombre":rn,"area":ra,"rol":rr,"email":re_,"pwd":hash_password(rp),"activo":False,"aprobado":False}
                 st.success(f"✅ Solicitud enviada para **{rn}**.")
     with t3:
         st.markdown("### 🔑 Recuperación de contraseña")
