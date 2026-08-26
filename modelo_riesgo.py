@@ -338,6 +338,39 @@ def pagina_riesgo_lesion(cargar_sheet, pdf_btn=None, html_table=None):
 
     st.markdown('<div class="sec-title">🤖 Riesgo de Lesión — Modelo FWF</div>', unsafe_allow_html=True)
 
+    # ── ¿Qué es el FWF? — explicación en lenguaje simple para quien no
+    # maneja el detalle técnico (cuerpo médico, cuerpo técnico). ──────
+    with st.expander("ℹ️ ¿Qué es el FWF y cómo se calcula el riesgo?", expanded=False):
+        st.markdown(
+            '<div style="font-size:13px;color:#cbd5e1;line-height:1.7;">'
+            '<b style="color:#93c5fd;">Footballer Workload Footprint (FWF)</b> es un índice propio, '
+            'de <b>0 a 100</b>, que resume en un solo número cuánto exigió físicamente una sesión de '
+            'entrenamiento o partido a un jugador. No es un dato de GPS más — es la combinación '
+            'ponderada de las cinco variables de carga que más se asocian con fatiga y sobrecarga:'
+            '<ul style="margin:10px 0 10px 18px;padding:0;">'
+            '<li><b>Distancia total</b> — 30% del índice</li>'
+            '<li><b>Distancia a alta velocidad (HSD)</b> — 25%</li>'
+            '<li><b>Cantidad de sprints</b> — 20%</li>'
+            '<li><b>Aceleraciones</b> — 15%</li>'
+            '<li><b>Desaceleraciones</b> — 10%</li>'
+            '</ul>'
+            'El resultado se ajusta además por los minutos jugados, para que una sesión de 45\' y '
+            'una de 90\' sean comparables sin penalizar al jugador que estuvo menos tiempo en cancha.'
+            '<br><br>'
+            '<b style="color:#93c5fd;">¿Y el score de Riesgo?</b> Se calcula sobre el <i>historial</i> '
+            'de FWF de cada jugador, no sobre una sola sesión: mira cuánta carga acumuló en los '
+            'últimos 7 días frente a su promedio de 28 días (ACWR), qué tan pareja o irregular fue '
+            'esa carga semana a semana (monotonía), y combina eso con un modelo entrenado sobre el '
+            'historial de lesiones del club (o, si todavía no hay lesiones suficientes cargadas, con '
+            'un modo basado en reglas y umbrales de la literatura científica del deporte).'
+            '<br><br>'
+            '<b style="color:#f87171;">Importante:</b> el score es una herramienta de apoyo — nunca '
+            'reemplaza el criterio del cuerpo médico. Un jugador en "Riesgo Alto" no está lesionado '
+            'ni va a lesionarse necesariamente: significa que su patrón de carga reciente se parece '
+            'al de jugadores que, históricamente, terminaron lesionándose. Vale la pena mirarlo con '
+            'más atención, no sacarlo de la cancha automáticamente.'
+            '</div>', unsafe_allow_html=True)
+
     gps = cargar_sheet("gps")
     les = cargar_sheet("lesiones")
     if gps is None or gps.empty:
